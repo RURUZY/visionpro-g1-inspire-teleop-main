@@ -55,6 +55,8 @@ class InspireHandController:
         self.timed_out = False
         self.context = None
         self.socket = None
+        self.trace_enabled = False
+        self.trace = {}
         for side in self.commands:
             joints = [j for j in range(model.njnt) if model.joint(j).name.startswith(f"{side}_hand_")]
             if len(joints) != 12:
@@ -107,7 +109,18 @@ class InspireHandController:
             self.targets[side] += np.clip(desired - self.targets[side], -3.0 * dt, 3.0 * dt)
             q = self.data.qpos[self.model.jnt_qposadr[active]]
             dq = self.data.qvel[self.model.jnt_dofadr[active]]
-            tau = np.clip(2.0 * (self.targets[side] - q) - 0.08 * dq, -1.4, 1.4)
+            raw_tau = 2.0 * (self.targets[side] - q) - 0.08 * dq
+            tau = np.clip(raw_tau, -1.4, 1.4)
+            if self.trace_enabled:
+                self.trace[side] = {
+                    "command": self.commands[side].tolist(),
+                    "desired_rad": desired.tolist(),
+                    "target_rad": self.targets[side].tolist(),
+                    "actual_rad": q.copy().tolist(),
+                    "velocity_rad_s": dq.copy().tolist(),
+                    "pd_torque_nm": raw_tau.tolist(),
+                    "limited_torque_nm": tau.tolist(),
+                }
             hand_tau = np.zeros(len(joints))
             hand_tau[np.searchsorted(joints, active)] = tau
             result.append(hand_tau)
@@ -142,11 +155,36 @@ def install_inspire_sim(endpoint="tcp://127.0.0.1:5556"):
             super().__init__(*args, **kwargs)
             self.torque_limit = np.max(np.abs(self.mj_model.actuator_ctrlrange), axis=1)
             self.inspire = InspireHandController(self.mj_model, self.mj_data, endpoint)
+            self.grasp_diagnostics = None
+            import os
+            if os.environ.get("SONIC_GRASP_DIAGNOSTICS", "0") == "1":
+                from g1_teleop.sim.grasp_diagnostics import GraspRecorder
+                self.grasp_diagnostics = GraspRecorder(
+                    self.mj_model, self.inspire,
+                    endpoint=os.environ.get("SONIC_GRASP_ENDPOINT", "tcp://127.0.0.1:5558"),
+                )
 
         def compute_hand_torques(self):
             return self.inspire.torques(self.sim_dt)
 
+        def sim_step(self):
+            recorder = self.grasp_diagnostics
+            before = recorder.begin_step(self.mj_data) if recorder is not None else None
+            self._grasp_before = before
+            super().sim_step()
+            self._grasp_before = None
+
+        def check_fall(self):
+            # Capture the solved step before a fall can reset the simulator.
+            recorder = getattr(self, "grasp_diagnostics", None)
+            before = getattr(self, "_grasp_before", None)
+            if recorder is not None and before is not None:
+                recorder.end_step(self.mj_data, before, bool(self.elastic_band and self.elastic_band.enable))
+            super().check_fall()
+
         def reset(self):
+            if getattr(self, "grasp_diagnostics", None) is not None:
+                self.grasp_diagnostics.episode += 1
             super().reset()
             if hasattr(self, "inspire"):
                 self.inspire.reset()
@@ -161,6 +199,9 @@ def install_inspire_sim(endpoint="tcp://127.0.0.1:5556"):
     def close(sim):
         env = getattr(sim, "sim_env", None)
         controller = getattr(env, "inspire", None)
+        recorder = getattr(env, "grasp_diagnostics", None)
+        if recorder is not None:
+            recorder.close()
         if controller is not None:
             controller.close()
         original_close(sim)

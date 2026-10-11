@@ -46,6 +46,7 @@ from g1_teleop.calibration.session import (
     sync_loco_zeros,
 )
 from g1_teleop.hand.mapping import InspireHandMapper, format_debug as format_hand_debug
+from g1_teleop.hand.tracking_guard import SimHandTrackingGuard
 from g1_teleop.locomotion.head import (
     HeadHeightSquatConfig,
     HeadLocomotionConfig,
@@ -304,6 +305,14 @@ def main():
     left_hand_command = hand_open_command.copy()
     right_hand_command = hand_open_command.copy()
     last_hand_tracking_time = 0.0
+    sim_hand_guards = (
+        {
+            side: SimHandTrackingGuard(mapper, hand_open_command, args.hand_tracking_timeout)
+            for side, mapper in (("left", left_hand_mapper), ("right", right_hand_mapper))
+        }
+        if args.enable_inspire_hand_sim and not args.enable_inspire_hand_dds
+        else None
+    )
 
     print(f"AVP -> SONIC bridge bound to {publisher.endpoint}")
     print(f"Mapping mode: {args.mapping_mode}")
@@ -1066,14 +1075,21 @@ def main():
                         if not hand_is_active(args, side):
                             continue
                         hand = getattr(tracking, side, None) if tracking is not None else None
-                        if hand is None:
-                            continue
-                        try:
-                            command, hand_map_debug = mapper.build_command(hand)
-                        except AttributeError as exc:
-                            if args.print_debug and now - last_debug > 1.0:
-                                hand_debug_lines.append(f"{side}_hand missing joint: {exc}")
-                            continue
+                        if sim_hand_guards is not None:
+                            command, hand_map_debug, status, changed, reason = sim_hand_guards[side].update(
+                                hand, time.monotonic()
+                            )
+                            if changed:
+                                print(f"[hand_tracking] {side}: {status}; {reason}", flush=True)
+                        else:
+                            if hand is None:
+                                continue
+                            try:
+                                command, hand_map_debug = mapper.build_command(hand)
+                            except AttributeError as exc:
+                                if args.print_debug and now - last_debug > 1.0:
+                                    hand_debug_lines.append(f"{side}_hand missing joint: {exc}")
+                                continue
 
                         command = np.clip(command, hand_command_min, hand_command_max)
                         if side == "left":
@@ -1081,7 +1097,7 @@ def main():
                         else:
                             right_hand_command = command
                         saw_hand_tracking = True
-                        if args.print_debug and now - last_debug > 1.0:
+                        if hand_map_debug is not None and args.print_debug and now - last_debug > 1.0:
                             hand_debug_lines.append(f"{side}_{format_hand_debug(command, hand_map_debug)}")
 
                     if saw_hand_tracking:

@@ -566,11 +566,19 @@ def parse_args():
     parser.add_argument("--thumb-open-distance", type=float, default=0.12)
     parser.add_argument("--thumb-close-distance", type=float, default=0.035)
     parser.add_argument("--flip-thumb-rotation", action="store_true")
-    parser.add_argument(
+    head_locomotion_group = parser.add_mutually_exclusive_group()
+    head_locomotion_group.add_argument(
         "--head-locomotion",
         action="store_true",
         help="Drive SONIC walking from head motion (work-master velocity derivative).",
     )
+    head_locomotion_group.add_argument(
+        "--no-head-locomotion",
+        dest="head_locomotion",
+        action="store_false",
+        help="Keep head motion from commanding walking, e.g. for a stationary grasp test.",
+    )
+    parser.set_defaults(head_locomotion=False)
     parser.add_argument(
         "--hybrid-locomotion",
         action="store_true",

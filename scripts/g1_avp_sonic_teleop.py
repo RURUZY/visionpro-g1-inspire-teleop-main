@@ -20,7 +20,7 @@ def main() -> None:
         argv.extend(["--active-hands", "both"])
     if "--auto-start" not in argv and "--no-auto-start" not in argv:
         argv.append("--no-auto-start")
-    if "--head-locomotion" not in argv:
+    if "--head-locomotion" not in argv and "--no-head-locomotion" not in argv:
         argv.append("--head-locomotion")
     if "--head-height-squat" not in argv and "--no-head-height-squat" not in argv:
         argv.append("--head-height-squat")
@@ -70,7 +70,7 @@ def main() -> None:
         "stand-hold=init-pose after ]. Use --stand-hold-mode track-robot for arms-down hold."
     )
     print(
-        "[g1_avp_sonic_teleop] Defaults: pure head loco, Inspire finger sim, "
+        "[g1_avp_sonic_teleop] Head loco unless --no-head-locomotion; Inspire finger sim, "
         "left delta remap identity, left wrist calibrated + avp-palm-left."
     )
     runpy.run_path(str(BRIDGE), run_name="__main__")

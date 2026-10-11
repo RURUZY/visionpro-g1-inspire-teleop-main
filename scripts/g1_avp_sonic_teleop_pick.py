@@ -19,7 +19,7 @@ def main() -> None:
         argv.extend(["--active-hands", "both"])
     if "--auto-start" not in argv and "--no-auto-start" not in argv:
         argv.append("--no-auto-start")
-    if "--head-locomotion" not in argv:
+    if "--head-locomotion" not in argv and "--no-head-locomotion" not in argv:
         argv.append("--head-locomotion")
     if "--head-height-squat" not in argv and "--no-head-height-squat" not in argv:
         argv.append("--head-height-squat")
@@ -31,7 +31,7 @@ def main() -> None:
     sys.argv = argv
     print(f"[g1_avp_sonic_teleop_pick] Running {BRIDGE}")
     print("[g1_avp_sonic_teleop_pick] Same arm/wrist defaults as run_sonic_avp_teleop.sh + Inspire finger sim")
-    print("[g1_avp_sonic_teleop_pick] Flow: c -> ] -> T -> walk to cube -> pinch to grasp")
+    print("[g1_avp_sonic_teleop_pick] Flow: F -> ] -> S -> T -> reach cube -> close fingers")
     runpy.run_path(str(BRIDGE), run_name="__main__")
 
 

@@ -59,6 +59,11 @@ already running to operate without headset video. Simulated fingers remain enabl
 
 ## Workflow B — MuJoCo sim pick-up (walk + hands + **simulated Inspire fingers**)
 
+For a read-only hand close-up, contact-force arrows, joint/torque charts and
+automatic recording, start Terminal 1 with `bash bin/sonic-sim-pick-diagnostics.sh`
+and open `bash bin/grasp-diagnostics.sh` in an extra terminal. The other launchers
+stay the same. See the grasp diagnostics instructions in [OPERATIONS.md](docs/OPERATIONS.md).
+
 Table + cube scene; pinch in AVP to grasp in MuJoCo.
 
 ```bash
@@ -73,6 +78,19 @@ Table + cube scene; pinch in AVP to grasp in MuJoCo.
 ```
 
 Same **F → ] → S → T** flow; fingers drive the MuJoCo Inspire hand (not physical hardware).
+
+For the first **stationary right-hand cube test**, keep terminals 1–2 above
+(deploy in `sim` mode) and use this in terminal 3:
+
+```bash
+./bin/sonic-teleop-pick-right.sh <VISION_PRO_IP_OR_ROOM_CODE>
+```
+
+This holds the left-hand target, disables head walking/squatting, and sets keyboard
+translation speed to zero. With the scene generated, run `tools/prepare_pick_test.py`
+using the simulator's Python to check free-body/contact configuration and create a
+blank ten-trial CSV plus Chinese instructions under `recordings/`. The check does
+not execute or certify a grasp. Target: lift 5–10 cm, hold 3 s, then place and release.
 
 ---
 
