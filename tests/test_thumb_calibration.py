@@ -57,3 +57,44 @@ def test_preserves_personal_finger_ranges():
     fitted, _ = fit_thumb_calibration(base, samples())
     for finger in FINGER_ORDER:
         assert fitted.channels[finger] == base.channels[finger]
+
+
+@pytest.mark.parametrize("options", [[], ["--enable-inspire-hand-dds"],
+    ["--enable-inspire-hand-sim", "--enable-inspire-hand-dds"]])
+def test_full_range_rejects_non_sim_output(monkeypatch, options):
+    monkeypatch.setattr(sys, "argv", ["bridge", "--sim-thumb-full-range", *options])
+    with pytest.raises(SystemExit) as exc:
+        parse_args()
+    assert exc.value.code == 2
+
+
+def test_full_range_preserves_calibration_and_fingers_and_opens_on_tracking_loss(monkeypatch, tmp_path):
+    from g1_teleop.hand.tracking_guard import SimHandTrackingGuard
+
+    monkeypatch.setattr(sys, "argv", ["bridge", "--enable-inspire-hand-sim"])
+    old_args = parse_args()
+    monkeypatch.setattr(sys, "argv", ["bridge", "--enable-inspire-hand-sim", "--sim-thumb-full-range"])
+    new_args = parse_args()
+    fitted, _ = fit_thumb_calibration(HandCalibration(), samples())
+    path = tmp_path / "personal.json"
+    fitted.save(path)
+    contents = path.read_bytes()
+    old = InspireHandMapper.from_args(old_args, path)
+    new = InspireHandMapper.from_args(new_args, path)
+    for pose in ("open", "close", "open"):
+        raw = dict(zip(FINGER_ORDER, [25., 35., 45., 55.]))
+        raw.update({key: samples()[f"{key}_{pose}"][0] for key in ("thumb_bend", "thumb_rot")})
+        old.measure_raw = lambda hand: (raw, {})
+        new.measure_raw = lambda hand: (raw, {})
+        for _ in range(40):
+            a, _ = old.build_command(None)
+            b, _ = new.build_command(None)
+        np.testing.assert_array_equal(a[:4], b[:4])
+        np.testing.assert_allclose(b[4:], [1000, 1000] if pose == "open" else [0, 0], atol=20)
+    assert path.read_bytes() == contents
+    # Match runtime's open-command construction: a lost skeleton must not close
+    # the thumb root as a side effect of the old inversion convention.
+    opening = [new_args.open_angle] * 4 + [new_args.thumb_bend_open_angle, new_args.thumb_rotation_open_angle]
+    guard = SimHandTrackingGuard(new, opening, new_args.hand_tracking_timeout)
+    guard.update(None, 1.0)
+    np.testing.assert_array_equal(guard.command[4:], [1000, 1000])

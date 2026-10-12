@@ -362,6 +362,8 @@ def main():
         print(f"Publishing sim Inspire hand commands on topic '{args.inspire_hand_topic}'.")
         print(f"  Left hand calib:  {left_hand_calib_file}")
         print(f"  Right hand calib: {right_hand_calib_file}")
+        if args.sim_thumb_full_range:
+            print("  Sim thumb full range ON: both hands, 1000=open / 0=closed; personal calibration retained.")
     if dds_hand_publisher is not None:
         topics = ", ".join(f"rt/inspire_hand/ctrl/{side}" for side in dds_hand_publisher.sides)
         if hand_dds_sides == "both":
