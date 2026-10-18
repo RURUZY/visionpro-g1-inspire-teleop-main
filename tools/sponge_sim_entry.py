@@ -10,6 +10,8 @@
    pose does not hold by contact alone (the scripted teacher scene does), cause not yet
    found. Do not use assisted episodes to judge grasp stability.
 3. R = put the sponge back on the table. Robot, controller and calibration are untouched.
+   It also happens automatically when the sponge has lain tipped over (> 60 deg) or off the table
+   for 1.5 s with the hand more than 12 cm away: a lying handle cannot be picked up with this hand.
 4. Table docking. The table (a mocap body) starts parked TABLE_PARK_OFFSET farther away so the
    arm swing at ] and the drop at 9 cannot touch it; once the band is released and the robot has
    stood still for DOCK_AFTER_S, the table and the sponge on it slide in to their final place.
@@ -46,6 +48,9 @@ DOCK_AFTER_S = 2.        # standing time after the band is released before the t
 DOCK_DURATION_S = 1.5
 DOCK_MAX_PELVIS_X = .12  # the robot must not stand closer than this to dock the table
 DOCK_MAX_SPEED = .05     # m/s pelvis speed that counts as standing still
+TIP_ANGLE_DEG = 60.      # handle tilt from vertical that counts as tipped over
+TIP_HOLD_S = 1.5         # tipped this long before the automatic return
+TIP_HAND_CLEAR_M = .12   # only when the palm is at least this far from the sponge
 VIEWER_HZ = float(os.environ.get('SONIC_VIEWER_HZ', '15'))
 MAX_BACKLOG_S = .1       # when further behind than this, stop trying to catch up
 CATCHUP = os.environ.get('SONIC_SIM_CATCHUP', '0') == '1'
@@ -78,6 +83,7 @@ class SpongeAids:
         self.dock_shift = np.array([-TABLE_PARK_OFFSET, 0., 0.])
         self.standing_since = self.dock_started = None
         self.docked = False
+        self.tipped_since = None
         self.warned_close = False
 
     def dock(self, data, band_enabled):
@@ -126,8 +132,30 @@ class SpongeAids:
         data.qvel[self.dofs] = 0
         data.qacc_warmstart[self.dofs] = 0
 
+    def tipped(self, data):
+        handle_axis = data.xmat[self.tool].reshape(3, 3)[:, 2]
+        return float(np.degrees(np.arccos(np.clip(handle_axis[2], -1, 1)))) > TIP_ANGLE_DEG
+
+    def auto_upright(self, data):
+        """Return a tipped-over sponge to its spot once the hand is clear."""
+        if not self.docked or self.pin_started is not None:
+            self.tipped_since = None
+            return
+        far = float(np.linalg.norm(data.xpos[self.palm] - data.xpos[self.tool])) > TIP_HAND_CLEAR_M
+        fell_off = data.xpos[self.tool][2] < self.home[2] - .10
+        if not ((self.tipped(data) or fell_off) and far):
+            self.tipped_since = None
+            return
+        if self.tipped_since is None:
+            self.tipped_since = data.time
+        elif data.time - self.tipped_since > TIP_HOLD_S:
+            self.tipped_since = None
+            print('[sponge] Sponge tipped over or fell off; returning it upright.', flush=True)
+            self._return_to_table(data)
+
     def apply(self, data):
         """Call once before each mj_step."""
+        self.auto_upright(data)
         if self.reset_request.is_set():
             self.reset_request.clear()
             self.pin_started = None

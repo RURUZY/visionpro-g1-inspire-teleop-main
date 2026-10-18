@@ -229,3 +229,46 @@ def test_table_stays_parked_when_robot_stands_too_close(scene):
         d.time = k * .005
         aids.dock(d, band_enabled=False)
     assert not aids.docked and aids.dock_started is None
+
+
+def test_tipped_sponge_returns_upright_after_docking(scene):
+    import sys
+    sys.path.insert(0, str(TOOLS))
+    from sponge_sim_entry import SpongeAids, TIP_HOLD_S
+    m, d = scene
+    aids = SpongeAids(m)
+    d.qpos[:60] = startup_samples()[-1]['robot_qpos']
+    d.qpos[:2] = 0
+    aids.docked = True
+    aids.home[:3] += aids.dock_shift
+    d.mocap_pos[aids.mocap] = aids.table_park + aids.dock_shift
+    tipped = aids.home.copy()
+    tipped[:3] = aids.home[:3] + [0, .05, -.07]
+    tipped[3:] = [.7071068, .7071068, 0, 0]  # handle lying along y
+    d.qpos[aids.qpos] = tipped
+    mujoco.mj_forward(m, d)
+    assert aids.tipped(d)
+    t = 0.
+    while t < TIP_HOLD_S + .2:
+        d.time = t
+        aids.apply(d)
+        t += .005
+    mujoco.mj_forward(m, d)
+    np.testing.assert_allclose(d.qpos[aids.qpos], aids.home)
+    assert not aids.tipped(d)
+
+
+def test_lock_head_rotation_keeps_base_orientation():
+    from types import SimpleNamespace
+    from g1_teleop.bridge.vr_targets import calibrated_head_orientation
+    from g1_teleop.bridge.rotation_utils import OfficialCalibration
+    base = np.array([1., 0, 0, 0])
+    turned = np.eye(4)
+    c, s_ = np.cos(.6), np.sin(.6)
+    turned[:3, :3] = [[c, -s_, 0], [s_, c, 0], [0, 0, 1]]
+    calib = OfficialCalibration(head_pose=np.eye(4), head_rotation=np.eye(3), left_rel=None, right_rel=None,
+                                left_orientation=None, right_orientation=None, left_rotation=None, right_rotation=None)
+    locked = calibrated_head_orientation(turned, calib, base, SimpleNamespace(lock_head_rotation=True, head_yaw_only=True))
+    np.testing.assert_allclose(locked, base)
+    free = calibrated_head_orientation(turned, calib, base, SimpleNamespace(lock_head_rotation=False, head_yaw_only=True))
+    assert abs(free[0]) < .99  # the unlocked target follows the 0.6 rad turn

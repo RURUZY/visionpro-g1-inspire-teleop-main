@@ -265,6 +265,12 @@ def parse_args():
         help="Track headset yaw, pitch, and roll for the robot head target.",
     )
     parser.add_argument(
+        "--lock-head-rotation",
+        action="store_true",
+        help="Keep the robot head/torso target orientation at its calibrated value; headset "
+        "turns do not turn the robot torso (steadier head-camera view).",
+    )
+    parser.add_argument(
         "--official-delta-sign-x",
         type=float,
         default=-1.0,

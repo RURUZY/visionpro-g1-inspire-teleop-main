@@ -21,28 +21,25 @@ bash run_sonic_deploy.sh sim
 等待出现 Init Done，再继续终端 3。
 
 
-【终端 3】Vision Pro 遥操作 + 自动校准（与抓方块相同）
+【终端 3】Vision Pro 遥操作（海绵专用设置）
 
-先在 Vision Pro 打开 Tracking Streamer，启动追踪，然后运行：
+先在 Vision Pro 打开 Tracking Streamer，启动追踪（并打开视频开关），然后运行：
 
 cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash bin/sonic-teleop-sponge.sh 192.168.2.5
+
+和抓方块用同一个 solo_teleop.sh 流程，只是桥接设置不同：
+  - 关掉头部控制行走和下蹲（桌子会推到伸手可及处，前倾不会让机器人走动）；
+  - 手部一比一映射（抓方块默认：往前 1.55 倍、往回 0.35 倍、手腕 0.9 倍）；
+  - 转头不带动机器人躯干转（头部相机画面更稳）；
+  - 手臂跟随更快、平滑更轻。
+想换回抓方块的旧设置做对比，终端 3 改用：
 bash solo_teleop.sh 192.168.2.5 --print-debug
 
 脚本会自动执行 F → ] → S → T，按照提示保持校准姿势。
 提示落地时：机器人还悬挂，才在 MuJoCo 窗口按 9，然后回终端按回车。
 如果机器人已经站在地上，直接回终端按回车，不要再次按 9。
 出现 teleop is live 后开始操作。
-
-
-【可选】终端 3 的快速档（手臂跟手更快，仿真练习用）
-
-默认把手的移动限速在 0.30 m/s，并做 0.10 s 平滑，动作快时机器人会明显落后。
-觉得跟手太慢时，用下面这条替换终端 3 的命令（只在仿真里用，真机先用默认值）：
-
-cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
-bash solo_teleop.sh 192.168.2.5 --print-debug --hybrid-max-speed 0.8 --hybrid-smoothing-tau 0.04 --arm-max-angular-speed 3.5 --arm-orientation-smoothing-tau 0.06
-
-如果手臂开始抖，把 0.04 改回 0.10。
 
 
 【头显看不到机器人画面时】
@@ -89,6 +86,7 @@ R：把海绵放回桌上（手挡在原位时会提示先移开手）。
 记录失败发生在对准、闭合、抬起、擦拭还是放回阶段。
 
 海绵掉落或被碰飞：按 R 放回桌上，不用重启。
+海绵倒在桌上或掉下桌、手又离开超过 12 cm 时，1.5 秒后会自动放回立好。
 
 
 【暂停遥操作】在任意另开的终端执行
