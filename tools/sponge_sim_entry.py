@@ -14,6 +14,12 @@
    arm swing at ] and the drop at 9 cannot touch it; once the band is released and the robot has
    stood still for DOCK_AFTER_S, the table and the sponge on it slide in to their final place.
    A practice convenience, as if someone pushed the table over after the robot stood up.
+5. Faster sim loop. Profiling on the Jetson (68 steps/s = 0.34x real time) showed the desktop
+   viewer sync costs ~17 ms per call at 50 Hz, and the upstream per-step rate limiter sleeps on
+   fast steps without ever catching up after slow ones. Here the viewer refreshes at
+   SONIC_VIEWER_HZ (default 15; 0 = every step) and the loop sleeps only when it is ahead of
+   real time. The headset image keeps its own rate. Measured: 68 -> ~123 steps/s (0.34x -> 0.62x
+   real time) with the headset image on; publishing robot state less often did not help.
 """
 from __future__ import annotations
 
@@ -38,6 +44,8 @@ DOCK_AFTER_S = 2.        # standing time after the band is released before the t
 DOCK_DURATION_S = 1.5
 DOCK_MAX_PELVIS_X = .12  # the robot must not stand closer than this to dock the table
 DOCK_MAX_SPEED = .05     # m/s pelvis speed that counts as standing still
+VIEWER_HZ = float(os.environ.get('SONIC_VIEWER_HZ', '15'))
+MAX_BACKLOG_S = .1       # when further behind than this, stop trying to catch up
 
 
 class SpongeAids:
@@ -208,6 +216,44 @@ def install():
             super().sim_step()
 
     base_sim.DefaultEnv = SpongeEnv
+    base_sim.BaseSimulator.start = _start
+
+
+def _start(self):
+    """BaseSimulator.start with a slower desktop viewer and real-time catch-up scheduling."""
+    import pickle
+    import time
+    every = lambda dt: max(1, int(round(dt / self.sim_dt)))  # noqa: E731
+    viewer_every = every(1. / VIEWER_HZ) if VIEWER_HZ > 0 else 1
+    reward_every, image_every = every(self.reward_dt), every(self.image_dt)
+    sim_cnt, last_redis = 0, time.time()
+    deadline = time.monotonic()
+    try:
+        while self._running and ((self.sim_env.viewer and self.sim_env.viewer.is_running())
+                                 or self.sim_env.viewer is None):
+            self.sim_env.sim_step()
+            if self.redis_client is not None and time.time() - last_redis > .1:
+                head_pose = self.sim_env.get_head_pose()
+                self.redis_client.set('head_pos', pickle.dumps(head_pose[:3]))
+                self.redis_client.set('head_quat', pickle.dumps(head_pose[3:]))
+                last_redis = time.time()
+            if sim_cnt % viewer_every == 0:
+                self.sim_env.update_viewer()
+            if sim_cnt % reward_every == 0:
+                self.sim_env.update_reward()
+            if sim_cnt % image_every == 0:
+                self.sim_env.update_render_caches()
+            sim_cnt += 1
+            deadline += self.sim_dt
+            ahead = deadline - time.monotonic()
+            if ahead > 0:
+                time.sleep(ahead)
+            elif ahead < -MAX_BACKLOG_S:
+                deadline = time.monotonic()  # too far behind: run at full speed, no unbounded backlog
+    except KeyboardInterrupt:
+        print('Simulator interrupted by user.')
+    finally:
+        self.close()
 
 
 if __name__ == '__main__':

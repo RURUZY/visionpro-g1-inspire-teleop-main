@@ -34,6 +34,31 @@ bash solo_teleop.sh 192.168.2.5 --print-debug
 出现 teleop is live 后开始操作。
 
 
+【可选】终端 3 的快速档（手臂跟手更快，仿真练习用）
+
+默认把手的移动限速在 0.30 m/s，并做 0.10 s 平滑，动作快时机器人会明显落后。
+觉得跟手太慢时，用下面这条替换终端 3 的命令（只在仿真里用，真机先用默认值）：
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash solo_teleop.sh 192.168.2.5 --print-debug --hybrid-max-speed 0.8 --hybrid-smoothing-tau 0.04 --arm-max-angular-speed 3.5 --arm-orientation-smoothing-tau 0.06
+
+如果手臂开始抖，把 0.04 改回 0.10。
+
+
+【头显看不到机器人画面时】
+
+终端 3 一直打印 "Waiting for headset video connection" 说明头显没收到画面。
+在 Vision Pro 的 Tracking Streamer 里打开视频 / 沉浸视图开关，等终端 3 打印
+"Headset video connection established"。只看电脑屏幕操作会明显觉得卡、难判断高度。
+
+
+【仿真速度】
+
+海绵场景的电脑窗口刷新降到 15 Hz（头显画面不变），仿真从实时的 0.34 倍提到约 0.62 倍。
+这台 Jetson 上暂时到不了实时；电脑窗口刷新可用 SONIC_VIEWER_HZ 调，例如：
+SONIC_VIEWER_HZ=10 bash bin/sonic-sim-sponge.sh
+
+
 【场景布置】
 
 机器人悬挂得比抓方块低 10 cm，按 9 后基本原地落地，不会往前冲。
