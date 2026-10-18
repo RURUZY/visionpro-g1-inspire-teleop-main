@@ -1,0 +1,70 @@
+G1 海绵擦拭测试命令（MuJoCo + Vision Pro）
+========================================
+
+流程与抓方块完全相同，只把终端 1 换成海绵场景。
+三个终端都要开。每段都带有进入项目目录的命令，可直接复制。
+先结束旧的仿真和遥操作，不要同时启动两套。
+沿用 Vision Pro IP：192.168.2.5；如果 IP 变了，只替换这个地址。
+
+
+【终端 1】海绵场景
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash bin/sonic-sim-sponge.sh
+
+
+【终端 2】仿真控制（与抓方块相同）
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash run_sonic_deploy.sh sim
+
+等待出现 Init Done，再继续终端 3。
+
+
+【终端 3】Vision Pro 遥操作 + 自动校准（与抓方块相同）
+
+先在 Vision Pro 打开 Tracking Streamer，启动追踪，然后运行：
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash solo_teleop.sh 192.168.2.5 --print-debug
+
+脚本会自动执行 F → ] → S → T，按照提示保持校准姿势。
+提示落地时：机器人还悬挂，才在 MuJoCo 窗口按 9，然后回终端按回车。
+如果机器人已经站在地上，直接回终端按回车，不要再次按 9。
+出现 teleop is live 后开始操作。
+
+
+【场景布置】
+
+桌子前沿距机器人 0.56 m，桌面高 0.72 m。
+带竖直手柄的海绵在右前方，绿色半透明方块是擦拭区域。
+落地后机器人会自然前移到离桌子较近的位置，右手可以够到海绵和擦拭区；
+够不到时和抓方块一样，头部前倾向前走一小步。
+
+
+【本次测试动作】
+
+空手检查手指 → 右手握住海绵手柄 → 抬起 5–10 cm → 移到绿色区域上方
+→ 放下并来回擦拭 → 抬起 → 放回原处并松手。
+记录失败发生在对准、闭合、抬起、擦拭还是放回阶段。
+
+海绵掉落或被碰飞：结束三个终端后重新启动（与方块掉落相同）。
+
+
+【暂停遥操作】在任意另开的终端执行
+
+tmux send-keys -t tele p
+
+
+【查看遥操作终端】
+
+tmux attach -t tele
+
+离开 tmux 查看界面但保留进程：先按 Ctrl+B，再按 D。
+
+
+【结束本次测试】
+
+tmux send-keys -t tele o
+
+等待桥接退出，然后在终端 2、终端 1 分别按 Ctrl+C。
