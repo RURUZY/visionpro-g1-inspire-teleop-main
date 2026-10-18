@@ -15,11 +15,14 @@ SIM_PYTHON="${SONIC_VENV_SIM:-${HOME}/.config/visionpro-g1-inspire-teleop/venv_s
 SCENE_XML="$("${SIM_PYTHON}" "${G1_TELEOP_ROOT}/tools/generate_sponge_scene.py")"
 export SONIC_ROBOT_SCENE="${SCENE_XML}"
 export G1_TELEOP_ENV_PRELOADED=1
+# Lower hang, table docking after landing, G/R sponge keys (see the file header).
+export SONIC_SIM_ENTRY="${G1_TELEOP_ROOT}/tools/sponge_sim_entry.py"
 
 cat <<EOF
 SONIC Terminal 1 — sponge scene
   Scene: ${SCENE_XML}
   Next: run_sonic_deploy.sh sim  |  solo_teleop.sh <VP_IP> --print-debug
+  After landing the table moves in; G = sponge into right hand, R = sponge back.
 EOF
 
 exec "$(dirname "$0")/sonic-sim.sh" "$@"

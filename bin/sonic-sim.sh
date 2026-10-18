@@ -69,4 +69,6 @@ fi
 
 g1_teleop_prepare_pythonpath
 cd "${GR00T_ROOT}"
-exec "${VENV_SIM}/bin/python" "${G1_TELEOP_ROOT}/tools/sonic_run_sim_loop.py" "${FPV_ARGS[@]}" "$@"
+# A task launcher may swap in its own entry that wraps sonic_run_sim_loop (default: the plain loop).
+SIM_ENTRY="${SONIC_SIM_ENTRY:-${G1_TELEOP_ROOT}/tools/sonic_run_sim_loop.py}"
+exec "${VENV_SIM}/bin/python" "${SIM_ENTRY}" "${FPV_ARGS[@]}" "$@"

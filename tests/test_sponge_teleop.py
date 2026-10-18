@@ -112,7 +112,7 @@ def test_reset_preserves_robot_commands_and_time(scene):
 
 def test_grip_lift_and_wipe_reachable_after_landing(scene):
     # Geometric arm IK only, not a claim of learned grasping or balance success.
-    # Recorded runs land at pelvis x ~0.38 m; 0.30 m keeps some margin.
+    # With the lowered hang (tools/sponge_sim_entry.py) recorded runs land in place, pelvis x ~-0.02 m.
     m, d = scene
     joints = [m.joint(f'right_{s}_joint').id for s in (
         'shoulder_pitch', 'shoulder_roll', 'shoulder_yaw', 'elbow',
@@ -121,7 +121,7 @@ def test_grip_lift_and_wipe_reachable_after_landing(scene):
     low, high = m.jnt_range[joints].T
     palm = m.body('right_base_link').id
     standing = np.array(startup_samples()[-1]['robot_qpos'])
-    standing[:2] = [.30, 0]
+    standing[:2] = [-.02, 0]
     standing[3:7] = [1, 0, 0, 0]
     sx, sy = generator.SPONGE_XY
     (wx, wy), (hx, hy) = generator.WIPE_TARGET_XY, generator.WIPE_TARGET_HALF
@@ -189,3 +189,43 @@ def test_existing_bridge_drives_both_hands_and_timeout(scene):
     controller.torques(.005, now=4)
     assert controller.timed_out
     assert np.isfinite(d.qpos).all() and not any(w.number for w in d.warning)
+
+
+def test_table_docks_after_standing_and_carries_sponge(scene):
+    import sys
+    sys.path.insert(0, str(TOOLS))
+    from sponge_sim_entry import SpongeAids, DOCK_AFTER_S, DOCK_DURATION_S
+    m, d = scene
+    aids = SpongeAids(m)
+    d.qpos[:60] = startup_samples()[-1]['robot_qpos']
+    d.qpos[:2] = 0
+    mujoco.mj_forward(m, d)
+    start = d.qpos[aids.qpos].copy()
+    aids.dock(d, band_enabled=True)  # still hanging: nothing moves
+    assert not aids.docked and aids.dock_started is None
+    d.qvel[:] = 0
+    t = 0.
+    while not aids.docked and t < DOCK_AFTER_S + DOCK_DURATION_S + 1:
+        d.time = t
+        aids.dock(d, band_enabled=False)
+        t += .005
+    assert aids.docked
+    np.testing.assert_allclose(d.mocap_pos[aids.mocap], aids.table_park + aids.dock_shift)
+    np.testing.assert_allclose(d.qpos[aids.qpos][:3], start[:3] + aids.dock_shift, atol=1e-9)
+    np.testing.assert_allclose(aids.home[:3], start[:3] + aids.dock_shift)
+    assert abs(aids.home[0] - generator.SPONGE_XY[0]) < 1e-9
+
+
+def test_table_stays_parked_when_robot_stands_too_close(scene):
+    import sys
+    sys.path.insert(0, str(TOOLS))
+    from sponge_sim_entry import SpongeAids, DOCK_AFTER_S
+    m, d = scene
+    aids = SpongeAids(m)
+    d.qpos[:60] = startup_samples()[-1]['robot_qpos']
+    d.qpos[0] = .3
+    d.qvel[:] = 0
+    for k in range(int((DOCK_AFTER_S + 1) / .005)):
+        d.time = k * .005
+        aids.dock(d, band_enabled=False)
+    assert not aids.docked and aids.dock_started is None

@@ -10,6 +10,10 @@
    pose does not hold by contact alone (the scripted teacher scene does), cause not yet
    found. Do not use assisted episodes to judge grasp stability.
 3. R = put the sponge back on the table. Robot, controller and calibration are untouched.
+4. Table docking. The table (a mocap body) starts parked TABLE_PARK_OFFSET farther away so the
+   arm swing at ] and the drop at 9 cannot touch it; once the band is released and the robot has
+   stood still for DOCK_AFTER_S, the table and the sponge on it slide in to their final place.
+   A practice convenience, as if someone pushed the table over after the robot stood up.
 """
 from __future__ import annotations
 
@@ -30,6 +34,10 @@ CLOSE_JOINTS = ('index_1', 'middle_1', 'ring_1', 'little_1')
 CLOSED_FRACTION = .6     # mean closure of the four fingers that counts as "closed"
 OPEN_FRACTION = .3       # below this the hand counts as opened again
 PIN_TIMEOUT_S = 8.       # time to close the hand after pressing G
+DOCK_AFTER_S = 2.        # standing time after the band is released before the table moves in
+DOCK_DURATION_S = 1.5
+DOCK_MAX_PELVIS_X = .12  # the robot must not stand closer than this to dock the table
+DOCK_MAX_SPEED = .05     # m/s pelvis speed that counts as standing still
 
 
 class SpongeAids:
@@ -51,6 +59,47 @@ class SpongeAids:
         self.grip_request, self.reset_request = Event(), Event()
         self.pin_started = self.closed_since = None
         self.scratch = mujoco.MjData(model)
+        self.home = model.qpos0[self.qpos].copy()  # sponge return pose; moves with the table
+        table = model.body('sponge_table')
+        self.mocap = int(table.mocapid[0])
+        self.table_park = model.body_pos[table.id].copy()
+        from generate_sponge_scene import TABLE_PARK_OFFSET
+        self.dock_shift = np.array([-TABLE_PARK_OFFSET, 0., 0.])
+        self.standing_since = self.dock_started = None
+        self.docked = False
+        self.warned_close = False
+
+    def dock(self, data, band_enabled):
+        """Slide the table (and the sponge resting on it) in after the robot has stood for a while."""
+        if self.docked:
+            return
+        if self.dock_started is None:
+            still = (not band_enabled and float(np.linalg.norm(data.qvel[:2])) < DOCK_MAX_SPEED)
+            self.standing_since = (self.standing_since or data.time) if still else None
+            if self.standing_since is None or data.time - self.standing_since < DOCK_AFTER_S:
+                return
+            if data.qpos[0] > DOCK_MAX_PELVIS_X:
+                if not self.warned_close:
+                    print('[sponge] Robot stands too far forward; table stays parked. Step back to dock it.', flush=True)
+                    self.warned_close = True
+                return
+            self.dock_started = data.time
+            self.sponge_start = data.qpos[self.qpos].copy()
+            on_table = abs(self.sponge_start[2] - self.home[2]) < .02
+            self.carry_sponge = on_table and self.pin_started is None
+            print('[sponge] Robot is standing; moving the table in.', flush=True)
+        u = min(1., (data.time - self.dock_started) / DOCK_DURATION_S)
+        u = u * u * (3 - 2 * u)
+        data.mocap_pos[self.mocap] = self.table_park + u * self.dock_shift
+        if self.carry_sponge:
+            pose = self.sponge_start.copy()
+            pose[:3] += u * self.dock_shift
+            self._hold(data, pose)
+        if u >= 1.:
+            self.docked = True
+            self.home[:3] += self.dock_shift
+            print('[sponge] Table in place. G = sponge into the right hand, R = sponge back on the table.',
+                  flush=True)
 
     def closure(self, data):
         return float(np.mean((data.qpos[self.finger_qadr] - self.finger_low) / self.finger_span))
@@ -101,13 +150,14 @@ class SpongeAids:
     def _return_to_table(self, data):
         mj, s = self.mj, self.scratch
         s.qpos[:] = data.qpos
-        s.qpos[self.qpos] = self.model.qpos0[self.qpos]
+        s.qpos[self.qpos] = self.home
+        s.mocap_pos[:] = data.mocap_pos
         mj.mj_forward(self.model, s)
         for c in s.contact:
             if ((int(c.geom1) in self.tool_geoms) != (int(c.geom2) in self.tool_geoms)) and c.dist < -1e-4:
                 print('[sponge] Table spot occupied; move the hand away and press R again.', flush=True)
                 return
-        self._hold(data, self.model.qpos0[self.qpos])
+        self._hold(data, self.home)
         data.xfrc_applied[self.tool] = 0
         print('[sponge] Sponge back on the table.', flush=True)
 
@@ -152,6 +202,8 @@ def install():
             self.sponge.grip_request, self.sponge.reset_request = pending['grip'], pending['reset']
 
         def sim_step(self):
+            band = bool(self.elastic_band and self.elastic_band.enable)
+            self.sponge.dock(self.mj_data, band)
             self.sponge.apply(self.mj_data)
             super().sim_step()
 
@@ -162,6 +214,7 @@ if __name__ == '__main__':
     install()
     import sonic_run_sim_loop
 
-    print(f'[sponge] Hang offset {HANG_OFFSET:+.2f} m. MuJoCo window: G = sponge into right hand '
-          '(assisted hold), R = sponge back on table, 9 = drop.', flush=True)
+    print(f'[sponge] Hang offset {HANG_OFFSET:+.2f} m. The table moves in about {DOCK_AFTER_S:.0f} s after the '
+          'robot stands. MuJoCo window: G = sponge into right hand (assisted hold), R = sponge back, 9 = drop.',
+          flush=True)
     sonic_run_sim_loop.main()

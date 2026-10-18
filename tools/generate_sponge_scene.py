@@ -7,15 +7,16 @@ import xml.etree.ElementTree as ET
 REPO = Path(__file__).resolve().parents[1]
 ROBOT_MODEL = REPO / 'assets/mujoco/g1_runtime/g1_29dof_with_inspire_hand.xml'
 TABLE_HEIGHT = .72
-# Checked against recorded F -> ] -> 9 -> S -> T runs of the cube workflow:
-# after the elastic band is released the robot steps forward to pelvis
-# x ~0.38 m; the front edge leaves room for that step instead of catching the
-# hips. The sponge sits outside the right-arm swing at ], and all targets are
-# reachable from the landed stance (otherwise step forward as with the cube).
-TABLE_FRONT_X = .56
+# The table is a mocap body. It starts TABLE_PARK_OFFSET farther away, clear of the
+# arm swing at ] and the drop at 9 (recorded runs: hands dip below table height out
+# to x~0.44 m), and tools/sponge_sim_entry.py moves it to TABLE_FRONT_X once the
+# robot has stood for 2 s. Positions below are the docked (final) ones; sponge and
+# targets were checked reachable from the landed stance (pelvis x~0).
+TABLE_FRONT_X = .30
+TABLE_PARK_OFFSET = .30
 TABLE_CENTER_Y, TABLE_HALF_Y = -.16, .30
-SPONGE_XY = (.63, -.40)
-WIPE_TARGET_XY, WIPE_TARGET_HALF = (.66, -.23), (.04, .05)
+SPONGE_XY = (.38, -.32)
+WIPE_TARGET_XY, WIPE_TARGET_HALF = (.37, -.15), (.035, .045)
 
 
 def generate_scene(output_dir=None, *, robot_model=ROBOT_MODEL):
@@ -52,7 +53,9 @@ def generate_scene(output_dir=None, *, robot_model=ROBOT_MODEL):
     add(world, 'light', pos='0 -1 2.5', dir='0 0 -1', directional='true')
     add(world, 'geom', name='floor', type='plane', size='0 0 0.05', rgba='.16 .20 .25 1')
     add(world, 'site', name='com_marker', size='.015', rgba='1 0 0 .4')
-    table = add(world, 'body', name='sponge_table', pos=f'{TABLE_FRONT_X+.22} {TABLE_CENTER_Y} {TABLE_HEIGHT-.025}')
+    table_x = TABLE_FRONT_X + .22
+    table = add(world, 'body', name='sponge_table', mocap='true',
+                pos=f'{table_x + TABLE_PARK_OFFSET} {TABLE_CENTER_Y} {TABLE_HEIGHT-.025}')
     add(table, 'geom', name='sponge_table_top', type='box', size=f'.22 {TABLE_HALF_Y} .025',
         rgba='.80 .85 .86 1', friction='.5 .005 .0001', contype='1', conaffinity='15')
     # Legs are set back from the front edge, away from the knees.
@@ -62,9 +65,11 @@ def generate_scene(output_dir=None, *, robot_model=ROBOT_MODEL):
                 pos=f'{x} {y} {-TABLE_HEIGHT/2}',
                 size=f'.02 .02 {(TABLE_HEIGHT-.05)/2}', rgba='.27 .31 .34 1')
     (wx, wy), (hx, hy) = WIPE_TARGET_XY, WIPE_TARGET_HALF
-    add(world, 'site', name='sponge_wipe_target', type='box', pos=f'{wx} {wy} {TABLE_HEIGHT+.001}',
+    # The target travels with the table (site in the table frame).
+    add(table, 'site', name='sponge_wipe_target', type='box', pos=f'{wx - table_x} {wy - TABLE_CENTER_Y} .026',
         size=f'{hx} {hy} .0005', rgba='.08 .65 .60 .35')
-    tool = add(world, 'body', name='sponge_tool', pos=f'{SPONGE_XY[0]} {SPONGE_XY[1]} {TABLE_HEIGHT+.0985}')
+    tool = add(world, 'body', name='sponge_tool',
+               pos=f'{SPONGE_XY[0] + TABLE_PARK_OFFSET} {SPONGE_XY[1]} {TABLE_HEIGHT+.0985}')
     add(tool, 'freejoint', name='sponge_free')
     common = dict(contype='8', conaffinity='5', condim='4')
     add(tool, 'geom', name='sponge_handle', type='capsule', fromto='0 0 -.05 0 0 .05',
