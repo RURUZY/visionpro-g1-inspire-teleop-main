@@ -2,6 +2,7 @@
 """Build a SONIC-compatible free sponge scene from the installed Inspire model."""
 from pathlib import Path
 import argparse
+import math
 import xml.etree.ElementTree as ET
 
 REPO = Path(__file__).resolve().parents[1]
@@ -12,11 +13,12 @@ TABLE_HEIGHT = .72
 # to x~0.44 m), and tools/sponge_sim_entry.py moves it to TABLE_FRONT_X once the
 # robot has stood for 2 s. Positions below are the docked (final) ones; sponge and
 # targets were checked reachable from the landed stance (pelvis x~0).
-TABLE_FRONT_X = .30
+TABLE_FRONT_X = .32
 TABLE_PARK_OFFSET = .30
 TABLE_CENTER_Y, TABLE_HALF_Y = -.16, .30
-SPONGE_XY = (.38, -.32)
-WIPE_TARGET_XY, WIPE_TARGET_HALF = (.37, -.15), (.035, .045)
+SPONGE_XY = (.375, -.24)
+SPONGE_YAW_DEG = 90.   # long side across the robot, so it sits near the front edge and nearer the body
+WIPE_TARGET_XY, WIPE_TARGET_HALF = (.365, -.12), (.035, .045)
 
 
 def generate_scene(output_dir=None, *, robot_model=ROBOT_MODEL):
@@ -68,7 +70,8 @@ def generate_scene(output_dir=None, *, robot_model=ROBOT_MODEL):
     # The target travels with the table (site in the table frame).
     add(table, 'site', name='sponge_wipe_target', type='box', pos=f'{wx - table_x} {wy - TABLE_CENTER_Y} .026',
         size=f'{hx} {hy} .0005', rgba='.08 .65 .60 .35')
-    tool = add(world, 'body', name='sponge_tool',
+    yaw = math.radians(SPONGE_YAW_DEG) / 2
+    tool = add(world, 'body', name='sponge_tool', quat=f'{math.cos(yaw)} 0 0 {math.sin(yaw)}',
                pos=f'{SPONGE_XY[0] + TABLE_PARK_OFFSET} {SPONGE_XY[1]} {TABLE_HEIGHT+.0985}')
     add(tool, 'freejoint', name='sponge_free')
     common = dict(contype='8', conaffinity='5', condim='4')

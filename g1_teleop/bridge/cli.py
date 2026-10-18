@@ -63,6 +63,13 @@ def parse_args():
     parser.add_argument("--head-position-scale", type=float, default=0.5)
     parser.add_argument("--hand-position-scale", type=float, default=0.8)
     parser.add_argument(
+        "--hand-lateral-scale",
+        type=float,
+        default=1.0,
+        help="Scale on the sideways (robot-Y) part of the hand motion after calibration. "
+        "<1 keeps wide human reaches inside the shorter G1 arm's workspace.",
+    )
+    parser.add_argument(
         "--mapping-mode",
         choices=("relative-zero", "head-relative", "hybrid", "official-calib"),
         default="official-calib",

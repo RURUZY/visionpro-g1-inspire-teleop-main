@@ -4,14 +4,19 @@
 1. Lower hang height. The default elastic band holds the pelvis ~17 cm above standing
    height; dropping from there makes SONIC take a large recovery step toward the table.
    SONIC_BAND_LENGTH lowers the hang point (same as pressing 7 in the viewer before 9).
-2. G = assisted pre-grasp. The sponge is placed at the right palm's grip pose and follows
-   the hand while it stays closed; opening the hand drops it. This is a kinematic assist
+2. G = assisted pre-grasp. The sponge is placed at the right palm's grip point and follows the
+   hand while it stays closed; opening the hand drops it. Its pad is kept level the whole time
+   (only its heading follows the fingers), because the robot wrist cannot always reach the angle
+   that makes a fist-held handle vertical. This is a kinematic assist
    for teleop practice, NOT a finger-contact grasp: in this SONIC scene the same grip
    pose does not hold by contact alone (the scripted teacher scene does), cause not yet
    found. Do not use assisted episodes to judge grasp stability.
 3. R = put the sponge back on the table. Robot, controller and calibration are untouched.
    It also happens automatically when the sponge has lain tipped over (> 60 deg) or off the table
    for 1.5 s with the hand more than 12 cm away: a lying handle cannot be picked up with this hand.
+   While the sponge is held off the table, its tilt, the handle direction in the palm frame and
+   the right wrist angles are logged at 5 Hz to recordings/sponge_grip_<time>.jsonl, to design a
+   handle angle that comes out level under the operator's natural grip.
 4. Table docking. The table (a mocap body) starts parked TABLE_PARK_OFFSET farther away so the
    arm swing at ] and the drop at 9 cannot touch it; once the band is released and the robot has
    stood still for DOCK_AFTER_S, the table and the sponge on it slide in to their final place.
@@ -37,9 +42,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 HANG_OFFSET = float(os.environ.get('SONIC_BAND_LENGTH', '-0.10'))  # tested: -0.10 lands in place, -0.16 steps back
-# Grip pose of the tool frame in right_base_link, same as the scripted teacher preview.
+# Grip point of the handle in right_base_link (same point as the scripted teacher's grasp).
 GRIP_POS = np.array([-.006, .025, .14])
-GRIP_QUAT = np.array([.7071067812, 0, -.7071067812, 0])
 CLOSE_JOINTS = ('index_1', 'middle_1', 'ring_1', 'little_1')
 CLOSED_FRACTION = .6     # mean closure of the four fingers that counts as "closed"
 OPEN_FRACTION = .3       # below this the hand counts as opened again
@@ -75,6 +79,7 @@ class SpongeAids:
         self.grip_request, self.reset_request = Event(), Event()
         self.pin_started = self.closed_since = None
         self.scratch = mujoco.MjData(model)
+        self.grip_rotation = np.eye(3)
         self.home = model.qpos0[self.qpos].copy()  # sponge return pose; moves with the table
         table = model.body('sponge_table')
         self.mocap = int(table.mocapid[0])
@@ -84,6 +89,17 @@ class SpongeAids:
         self.standing_since = self.dock_started = None
         self.docked = False
         self.tipped_since = None
+        hand = [model.joint(f'right_wrist_{n}_joint') for n in ('roll', 'pitch', 'yaw')]
+        self.wrist_qadr = np.array([int(j.qposadr[0]) for j in hand])
+        self.hand_bodies = set()
+        for body in range(model.nbody):
+            ancestor = body
+            while ancestor and ancestor != self.palm:
+                ancestor = int(model.body_parentid[ancestor])
+            if ancestor == self.palm:
+                self.hand_bodies.add(body)
+        self.grip_log = None
+        self.grip_log_last = -1.
         self.warned_close = False
 
     def dock(self, data, band_enabled):
@@ -121,11 +137,29 @@ class SpongeAids:
     def closure(self, data):
         return float(np.mean((data.qpos[self.finger_qadr] - self.finger_low) / self.finger_span))
 
+    def level_grip_rotation(self, data):
+        """Tool rotation in the palm frame that makes the pad level for the hand pose right now.
+
+        Tool z (handle axis, pad below) points straight up; tool x follows the horizontal
+        direction the fingers point, so the sponge faces where the hand faces.
+        """
+        palm = data.xmat[self.palm].reshape(3, 3)
+        forward = palm[:, 2].copy()          # finger direction
+        forward[2] = 0
+        if np.linalg.norm(forward) < 1e-3:  # fingers pointing straight up/down
+            forward = palm[:, 0].copy()
+            forward[2] = 0
+        x = forward / np.linalg.norm(forward)
+        z = np.array([0., 0., 1.])
+        tool = np.column_stack([x, np.cross(z, x), z])
+        return palm.T @ tool
+
     def grip_pose(self, data):
-        mj = self.mj
+        palm = data.xmat[self.palm].reshape(3, 3)
+        self.grip_rotation = self.level_grip_rotation(data)  # keep the pad level while held
         quat = np.zeros(4)
-        mj.mju_mulQuat(quat, data.xquat[self.palm], GRIP_QUAT)
-        return np.r_[data.xpos[self.palm] + data.xmat[self.palm].reshape(3, 3) @ GRIP_POS, quat]
+        self.mj.mju_mat2Quat(quat, (palm @ self.grip_rotation).flatten())
+        return np.r_[data.xpos[self.palm] + palm @ GRIP_POS, quat]
 
     def _hold(self, data, pose):
         data.qpos[self.qpos] = pose
@@ -153,9 +187,47 @@ class SpongeAids:
             print('[sponge] Sponge tipped over or fell off; returning it upright.', flush=True)
             self._return_to_table(data)
 
+    def hand_contacts(self, data):
+        n = 0
+        for i in range(data.ncon):
+            c = data.contact[i]
+            a, b = self.model.geom_bodyid[c.geom1], self.model.geom_bodyid[c.geom2]
+            if (a == self.tool and b in self.hand_bodies) or (b == self.tool and a in self.hand_bodies):
+                n += 1
+        return n
+
+    def log_grip(self, data):
+        """Record how the sponge sits in the hand while it is carried (5 Hz)."""
+        if data.time - self.grip_log_last < .2:
+            return
+        lifted = data.xpos[self.tool][2] > self.home[2] + .02
+        assisted = self.pin_started is not None
+        if not lifted or not (assisted or self.hand_contacts(data) >= 2):
+            return
+        self.grip_log_last = data.time
+        if self.grip_log is None:
+            import json, time as _time
+            self._json = json
+            path = Path(os.environ.get('SONIC_SPONGE_GRIP_LOG') or Path(__file__).resolve().parents[1]
+                        / 'recordings' / _time.strftime('sponge_grip_%Y%m%d_%H%M%S.jsonl'))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self.grip_log = path.open('a')
+            print(f'[sponge] Logging how the sponge sits in the hand to {path}', flush=True)
+        palm = data.xmat[self.palm].reshape(3, 3)
+        handle = data.xmat[self.tool].reshape(3, 3)[:, 2]
+        self.grip_log.write(self._json.dumps({
+            'sim_time': round(float(data.time), 3), 'mode': 'assisted' if assisted else 'contact',
+            'tilt_deg': round(float(np.degrees(np.arccos(np.clip(handle[2], -1, 1)))), 2),
+            'handle_in_palm': np.round(palm.T @ handle, 4).tolist(),
+            'palm_axes_world': np.round(palm, 4).tolist(),
+            'wrist_roll_pitch_yaw': np.round(data.qpos[self.wrist_qadr], 4).tolist(),
+        }) + '\n')
+        self.grip_log.flush()
+
     def apply(self, data):
         """Call once before each mj_step."""
         self.auto_upright(data)
+        self.log_grip(data)
         if self.reset_request.is_set():
             self.reset_request.clear()
             self.pin_started = None
@@ -163,6 +235,7 @@ class SpongeAids:
         if self.grip_request.is_set():
             self.grip_request.clear()
             self.pin_started, self.closed_since = data.time, None
+            self.grip_rotation = self.level_grip_rotation(data)  # pad level for the hand pose at G
             print('[sponge] Sponge placed in the right hand. Close the hand to hold it.', flush=True)
         if self.pin_started is None:
             return

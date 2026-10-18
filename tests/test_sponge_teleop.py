@@ -257,3 +257,57 @@ def test_tipped_sponge_returns_upright_after_docking(scene):
     np.testing.assert_allclose(d.qpos[aids.qpos], aids.home)
     assert not aids.tipped(d)
 
+
+
+def test_g_key_levels_the_pad_for_any_hand_pose(scene, tmp_path, monkeypatch):
+    import sys
+    monkeypatch.setenv('SONIC_SPONGE_GRIP_LOG', str(tmp_path / 'grip.jsonl'))
+    sys.path.insert(0, str(TOOLS))
+    from sponge_sim_entry import SpongeAids
+    m, d = scene
+    aids = SpongeAids(m)
+    rng = np.random.default_rng(0)
+    for _ in range(5):
+        d.qpos[:60] = startup_samples()[-1]['robot_qpos']
+        arm = [m.joint(f'right_{n}_joint') for n in ('shoulder_roll', 'shoulder_yaw', 'wrist_roll', 'wrist_pitch', 'wrist_yaw')]
+        for j in arm:
+            d.qpos[j.qposadr[0]] = rng.uniform(j.range[0] * .5, j.range[1] * .5)
+        mujoco.mj_forward(m, d)
+        aids.grip_request.set()
+        aids.apply(d)
+        mujoco.mj_forward(m, d)
+        handle_axis = d.xmat[aids.tool].reshape(3, 3)[:, 2]
+        assert handle_axis[2] > .999  # handle vertical, pad level, whatever the wrist pose
+        aids.pin_started = None
+
+
+def test_hand_lateral_scale_only_scales_sideways(monkeypatch):
+    import sys
+    from g1_teleop.bridge.cli import parse_args
+    from g1_teleop.bridge.vr_targets import official_hand_delta
+    rel, calib = np.array([.1, .2, .3]), np.zeros(3)
+    out = {}
+    for scale in ('1.0', '0.5'):
+        monkeypatch.setattr(sys, 'argv', ['bridge', '--avp-endpoint', 'x', '--hand-lateral-scale', scale])
+        out[scale] = official_hand_delta(rel, calib, parse_args(), side='right')
+    np.testing.assert_allclose(out['0.5'][[0, 2]], out['1.0'][[0, 2]])
+    np.testing.assert_allclose(out['0.5'][1], .5 * out['1.0'][1])
+
+
+def test_grip_log_records_carried_sponge(scene, tmp_path, monkeypatch):
+    import json, sys
+    sys.path.insert(0, str(TOOLS))
+    monkeypatch.setenv('SONIC_SPONGE_GRIP_LOG', str(tmp_path / 'grip.jsonl'))
+    from sponge_sim_entry import SpongeAids
+    m, d = scene
+    aids = SpongeAids(m)
+    d.qpos[:60] = startup_samples()[-1]['robot_qpos']
+    mujoco.mj_forward(m, d)
+    aids.grip_request.set()
+    for k in range(3):
+        d.time = k * .25
+        aids.apply(d)
+        mujoco.mj_forward(m, d)
+    rows = [json.loads(line) for line in (tmp_path / 'grip.jsonl').read_text().splitlines()]
+    assert rows and rows[0]['mode'] == 'assisted' and rows[0]['tilt_deg'] < 1.
+    assert len(rows[0]['handle_in_palm']) == 3 and len(rows[0]['wrist_roll_pitch_yaw']) == 3

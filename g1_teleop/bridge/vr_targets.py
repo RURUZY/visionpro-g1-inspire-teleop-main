@@ -275,6 +275,7 @@ def official_hand_delta(rel: np.ndarray, calib_rel: np.ndarray, args, side: str 
     forward_scale, backward_scale = hand_forward_backward_scales(args, side)
     signed_delta[0] *= forward_scale if signed_delta[0] >= 0.0 else backward_scale
     delta = args.body_scale * signed_delta
+    delta[1] *= float(getattr(args, "hand_lateral_scale", 1.0))
     if side == "left":
         delta *= float(getattr(args, "left_hand_delta_scale", 1.0))
         delta[2] *= left_hand_z_delta_scale(raw_delta, args)
