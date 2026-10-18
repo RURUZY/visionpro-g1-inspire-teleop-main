@@ -257,18 +257,3 @@ def test_tipped_sponge_returns_upright_after_docking(scene):
     np.testing.assert_allclose(d.qpos[aids.qpos], aids.home)
     assert not aids.tipped(d)
 
-
-def test_lock_head_rotation_keeps_base_orientation():
-    from types import SimpleNamespace
-    from g1_teleop.bridge.vr_targets import calibrated_head_orientation
-    from g1_teleop.bridge.rotation_utils import OfficialCalibration
-    base = np.array([1., 0, 0, 0])
-    turned = np.eye(4)
-    c, s_ = np.cos(.6), np.sin(.6)
-    turned[:3, :3] = [[c, -s_, 0], [s_, c, 0], [0, 0, 1]]
-    calib = OfficialCalibration(head_pose=np.eye(4), head_rotation=np.eye(3), left_rel=None, right_rel=None,
-                                left_orientation=None, right_orientation=None, left_rotation=None, right_rotation=None)
-    locked = calibrated_head_orientation(turned, calib, base, SimpleNamespace(lock_head_rotation=True, head_yaw_only=True))
-    np.testing.assert_allclose(locked, base)
-    free = calibrated_head_orientation(turned, calib, base, SimpleNamespace(lock_head_rotation=False, head_yaw_only=True))
-    assert abs(free[0]) < .99  # the unlocked target follows the 0.6 rad turn

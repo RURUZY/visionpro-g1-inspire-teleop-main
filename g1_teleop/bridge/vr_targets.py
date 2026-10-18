@@ -443,8 +443,6 @@ def calibrated_head_orientation(
     base_orientation: np.ndarray,
     args,
 ) -> np.ndarray:
-    if getattr(args, "lock_head_rotation", False):
-        return np.asarray(base_orientation, dtype=np.float64).copy()
     if args.head_yaw_only:
         yaw_delta = yaw_from_rot_matrix(head_pose[:3, :3]) - yaw_from_rot_matrix(calibration.head_rotation)
         rotation_delta = rotation_z(yaw_delta)
