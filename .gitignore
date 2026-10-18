@@ -15,3 +15,7 @@ assets/mujoco/generated/
 assets/mujoco/inspire_ftp/
 recordings/
 MUJOCO_LOG.TXT
+# act_tools: generated data and environments stay out of git
+act_tools/**/output/
+act_tools/**/runs/
+act_tools/.venv/

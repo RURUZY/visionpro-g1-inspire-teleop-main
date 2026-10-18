@@ -1,0 +1,55 @@
+G1 + Inspire：本地 ACT 与数据工具环境
+安装日期：2026-10-17
+
+用途
+  Jetson：复用现有仿真，准备/检查数据，做小规模 CPU 模型验证。
+  云 GPU：之后选择实例并配置 CUDA 训练环境；本次没有创建或连接云实例。
+
+位置与启动
+  cd /home/epcap/projects/g1-act-tools
+  source .venv/bin/activate
+  lerobot-train --help
+  ffmpeg -version
+
+核心版本
+  Python 3.10；LeRobot 0.4.4；PyTorch 2.6.0（本机 CPU 版）；torchvision 0.21.0。
+  MuJoCo 3.14.0；NumPy 2.2.6；OpenCV headless 4.11.0.86。
+  PyAV 15.1.0；HDF5/h5py 3.14.0；FFmpeg 7.0.2（imageio-ffmpeg 自带）。
+  LeRobot 数据格式固定为 v3.0，视频读取显式选择 pyav，编码选择 h264。
+  requirements.txt 是顶层依赖；requirements-lock.txt 是完整本地版本记录。
+
+使用边界
+  原 SONIC/遥操作环境仍在：
+    /home/epcap/.config/visionpro-g1-inspire-teleop/venv_sonic_sim
+  原有启动脚本继续使用原环境。本环境不包含完整 SONIC/DDS/逆运动学依赖。
+  本次安装验证不代表已实现擦拭场景、训练数据采集适配器或 ACT 闭环控制。
+  验证中的 13 维状态/动作是合成示例，实际机器人映射仍需核对。
+
+已完成验证
+  pip check：无依赖冲突。
+  lerobot-train --help：通过。
+  ACT：合成 RGB/状态输入，前向、反向传播、一次优化器更新和动作输出通过。
+  HDF5 与 H.264 MP4：写入、读取通过。
+  LeRobot v3：20 Hz、10 帧合成视频/状态/动作数据写入并重新读取通过。
+  现有 G1 抓方块场景：100 步仿真、reset、320x240 相机渲染通过。
+  新环境与原环境均通过上述场景检查；这不是任务成功率或遥操作验收。
+
+复查命令（仅本地数据和离线仿真，不连接机器人）
+  python tools/check_act.py --output artifacts/recheck-act
+  python tools/check_dataset.py --output artifacts/recheck-dataset
+  MUJOCO_GL=egl python tools/check_mujoco.py --output artifacts/recheck-sim
+  渲染需要正常 GPU 设备访问权限；受限沙箱可能无法访问。
+
+云端准备
+  requirements-cloud.txt 是 Python 3.10 / Linux x86_64 的待验证依赖起点。
+  先确定 GPU 型号、驱动与 CUDA 镜像，再安装匹配的 PyTorch/torchvision。
+  不要将本地 aarch64 的 .venv 复制到 x86_64 云机器。
+  迁移内容应是数据、代码、配置和版本清单。
+  TorchCodec 0.2.1 对应 PyTorch 2.6；若改变 PyTorch，需要同步核对兼容版本。
+  云端训练使用 --dataset.video_backend=pyav 可沿用已验证的视频读取方式。
+  云端环境、GPU 训练和真实示范数据尚未验证。
+
+依据
+  https://huggingface.co/docs/lerobot/installation
+  https://github.com/huggingface/lerobot/tree/v0.4.4
+  https://github.com/meta-pytorch/torchcodec/tree/v0.2.1

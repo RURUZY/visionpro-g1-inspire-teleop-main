@@ -1,0 +1,6 @@
+# Candidate stack for a Linux x86_64 cloud GPU with Python 3.10.
+# This has NOT been installed or tested on a cloud instance.
+# Select the CUDA-enabled torch/torchvision build for the actual GPU/driver first.
+-r requirements.txt
+# TorchCodec 0.2 matches PyTorch 2.6. Jetson uses PyAV instead.
+torchcodec==0.2.1; sys_platform == 'linux' and platform_machine == 'x86_64'

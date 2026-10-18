@@ -1,0 +1,53 @@
+G1 + Inspire 擦拭脚本教师：生成 ACT 训练数据（仿真）
+================================================
+
+做什么
+  在 MuJoCo 里自动生成"按指令擦左边/右边区域"的示范，并写成 LeRobot v3 数据集。
+  不用 Vision Pro、不用 SONIC，也不连机器人。
+
+运行（在 g1-act-tools 目录）
+  cd /home/epcap/projects/g1-act-tools
+
+  生成 10 条成功示范（约 1.5 分钟）：
+    .venv/bin/python wipe_teacher/wipe_teacher.py --episodes 10 --output wipe_teacher/runs/debug10
+
+  生成 200 条（约 30 分钟），换一个随机种子：
+    .venv/bin/python wipe_teacher/wipe_teacher.py --episodes 200 --seed 1 --output wipe_teacher/runs/sim200
+
+  只擦一边（第一版单目标 ACT 用）：
+    .venv/bin/python wipe_teacher/wipe_teacher.py --episodes 50 --side right --output wipe_teacher/runs/right50
+
+  在 Jetson 桌面窗口里看动作（不录制）：
+    .venv/bin/python wipe_teacher/wipe_teacher.py --viewer
+
+  --output 目录已存在 dataset 时会拒绝覆盖，换一个目录名即可。
+
+输出
+  <output>/dataset/         LeRobot v3 数据集，repo_id 默认 local/g1_inspire_wipe_sim
+  <output>/episodes.jsonl   每一次尝试的结果（成功和失败都有）：覆盖率、握持漂移、失败原因
+  <output>/summary.json     数据集位置、条数、字段名、成功阈值
+  <output>/scene/           本次使用的场景 XML
+
+数据字段（20 Hz）
+  observation.images.head   头部相机 RGB，240×320
+  observation.state         13 维：右臂 7 关节实际角度 + 右手 6 个主动关节实际角度
+  action                    13 维：同样 13 个关节的位置目标（下一帧发给位置控制器）
+  task                      "wipe the left area" 或 "wipe the right area"
+
+场景
+  骨盆固定、重力补偿；腰部向右转 0.25 rad，让头部相机对着右手工作区。
+  桌面高 0.78 m；左右两块目标区域外观相同，只靠语言指令区分。
+  两块区域每条示范一起随机平移 ±1.5 cm；起始手位、擦拭速度、来回方向也随机。
+  海绵预先握在右手里，靠手指接触保持，没有焊接固定。
+  头部相机竖直视场 58°（接近 G1 头部 D435），真实相机参数之后需标定。
+
+成功判定（只有成功的进数据集）
+  目标区域被海绵接触覆盖 ≥ 90%
+  另一块区域覆盖 ≤ 5%
+  工具相对手掌漂移 ≤ 2 cm，结束时手仍握着工具
+
+边界
+  这是仿真脚本示范，不是真机数据，也不是 SONIC 全身控制接口。
+  动作是右臂/右手关节位置目标，真机部署前需要和实际控制接口对齐。
+  海绵是刚体加柔顺接触的近似，覆盖率是接触代理指标，不代表真实清洁效果。
+  竖直手柄工具在桌面更低时够不到（手掌比海绵高约 15 cm），桌高 0.78 m 是这个原因。
