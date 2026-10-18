@@ -54,9 +54,12 @@ bash solo_teleop.sh 192.168.2.5 --print-debug --hybrid-max-speed 0.8 --hybrid-sm
 
 【仿真速度】
 
-海绵场景的电脑窗口刷新降到 15 Hz（头显画面不变），仿真从实时的 0.34 倍提到约 0.62 倍。
-这台 Jetson 上暂时到不了实时；电脑窗口刷新可用 SONIC_VIEWER_HZ 调，例如：
+海绵场景的电脑窗口刷新降到 15 Hz（头显画面不变）。实测完整流程中仿真从实时的
+0.34 倍提到约 0.76 倍。这台 Jetson 上暂时到不了实时；电脑窗口刷新可用 SONIC_VIEWER_HZ 调，例如：
 SONIC_VIEWER_HZ=10 bash bin/sonic-sim-sponge.sh
+
+实验选项（默认关闭）：SONIC_SIM_CATCHUP=1 bash bin/sonic-sim-sponge.sh
+能再快一些（接近实时），但测试中偶发仿真卡住约 2 秒，导致控制器停止、机器人摔倒，原因未查明。
 
 
 【场景布置】

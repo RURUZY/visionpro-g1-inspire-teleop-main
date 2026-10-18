@@ -17,9 +17,11 @@
 5. Faster sim loop. Profiling on the Jetson (68 steps/s = 0.34x real time) showed the desktop
    viewer sync costs ~17 ms per call at 50 Hz, and the upstream per-step rate limiter sleeps on
    fast steps without ever catching up after slow ones. Here the viewer refreshes at
-   SONIC_VIEWER_HZ (default 15; 0 = every step) and the loop sleeps only when it is ahead of
-   real time. The headset image keeps its own rate. Measured: 68 -> ~123 steps/s (0.34x -> 0.62x
-   real time) with the headset image on; publishing robot state less often did not help.
+   SONIC_VIEWER_HZ (default 15; 0 = every step); the headset image keeps its own rate.
+   SONIC_SIM_CATCHUP=1 additionally replaces the loop with one that sleeps only when ahead of
+   real time (68 -> ~123 steps/s, ~1.0x with the controller attached). It is OFF by default:
+   in 3 of ~10 runs the sim stalled for ~2 s, the controller lost LowState and the robot fell;
+   the cause was not reproduced or confirmed. Publishing robot state less often did not help.
 """
 from __future__ import annotations
 
@@ -46,6 +48,7 @@ DOCK_MAX_PELVIS_X = .12  # the robot must not stand closer than this to dock the
 DOCK_MAX_SPEED = .05     # m/s pelvis speed that counts as standing still
 VIEWER_HZ = float(os.environ.get('SONIC_VIEWER_HZ', '15'))
 MAX_BACKLOG_S = .1       # when further behind than this, stop trying to catch up
+CATCHUP = os.environ.get('SONIC_SIM_CATCHUP', '0') == '1'
 
 
 class SpongeAids:
@@ -216,7 +219,16 @@ def install():
             super().sim_step()
 
     base_sim.DefaultEnv = SpongeEnv
-    base_sim.BaseSimulator.start = _start
+    if CATCHUP:
+        base_sim.BaseSimulator.start = _start
+    elif VIEWER_HZ > 0:
+        original_init = base_sim.BaseSimulator.__init__
+
+        def init(self, *args, **kwargs):
+            original_init(self, *args, **kwargs)
+            self.viewer_dt = max(self.sim_dt, 1. / VIEWER_HZ)  # upstream loop, slower desktop viewer
+
+        base_sim.BaseSimulator.__init__ = init
 
 
 def _start(self):
