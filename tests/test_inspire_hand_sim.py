@@ -128,6 +128,31 @@ def test_timeout_opens_fingers(hand):
         np.testing.assert_array_equal(command, [1000] * 6)
 
 
+def test_full_range_thumb_profile_drives_both_hands_closed_and_open(hand, monkeypatch, tmp_path):
+    import sys
+    from g1_teleop.bridge.cli import parse_args
+    from g1_teleop.hand.mapping import HandCalibration, InspireHandMapper
+
+    monkeypatch.setattr(sys, "argv", ["bridge", "--enable-inspire-hand-sim", "--sim-thumb-full-range"])
+    calibration = HandCalibration()
+    calibration.channels["thumb_bend"] = {"open": 18., "close": 32.}
+    calibration.channels["thumb_rot"] = {"open": 43., "close": 9.5}
+    path = tmp_path / "personal.json"
+    calibration.save(path)
+    mapper = InspireHandMapper.from_args(parse_args(), path)
+    model, data, controller = hand
+    for pose in ("close", "open"):
+        raw = {key: values[pose] for key, values in calibration.channels.items()}
+        monkeypatch.setattr(mapper, "measure_raw", lambda hand: (raw, {}))
+        for _ in range(40):
+            command, _ = mapper.build_command(None)
+        advance(model, data, controller, packet(command, command))
+        for active in controller.active.values():
+            thumb = active[4:]
+            desired = model.jnt_range[thumb, 1 if pose == "close" else 0]
+            np.testing.assert_allclose(data.qpos[model.jnt_qposadr[thumb]], desired, atol=0.06)
+
+
 def test_model_preserves_body_actuator_order(hand):
     model, _, _ = hand
     body_names = ["hip", "knee", "ankle", "waist", "shoulder", "elbow", "wrist"]

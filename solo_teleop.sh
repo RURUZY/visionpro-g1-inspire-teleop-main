@@ -76,10 +76,25 @@ calibrate() {
 command -v tmux >/dev/null || { echo "tmux not installed: sudo apt install tmux"; exit 1; }
 [[ -d "$REPO" ]] || { echo "Repo not found at $REPO (set REPO=...)"; exit 1; }
 
-tmux kill-session -t "$SESSION" 2>/dev/null
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  log "stopping the previous bridge cleanly before reconnecting (leave Tracking Streamer open)"
+  tmux send-keys -t "$SESSION" o 2>/dev/null || true
+  for ((i = 0; i < 20; i++)); do
+    tmux has-session -t "$SESSION" 2>/dev/null || break
+    [[ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}' 2>/dev/null)" == 1 ]] && break
+    sleep 0.25
+  done
+  if tmux has-session -t "$SESSION" 2>/dev/null && \
+     [[ "$(tmux display-message -p -t "$SESSION" '#{pane_dead}' 2>/dev/null)" != 1 ]]; then
+    # Also release a previous SDK stuck waiting for its first tracking frame.
+    tmux send-keys -t "$SESSION" C-c 2>/dev/null || true
+    sleep 1
+  fi
+  tmux kill-session -t "$SESSION" 2>/dev/null || true
+fi
 : > "$LOG"
-tmux new-session -d -s "$SESSION" -x 220 -y 50 \
-  "cd '$REPO' && PYTHONUNBUFFERED=1 ./run_sonic_avp_teleop.sh '$AVP_IP' $* 2>&1 | grep --line-buffered -v 'No new image message' | tee -a '$LOG'; echo; echo 'bridge exited'; bash"
+printf -v bridge_cmd '%q ' bash "$REPO/tools/solo_bridge_session.sh" "$REPO" "$LOG" "$SESSION" "$AVP_IP" "$@"
+tmux new-session -d -s "$SESSION" -x 220 -y 50 "$bridge_cmd"
 log "bridge started in tmux session '$SESSION', waiting for Vision Pro tracking..."
 # Keys pressed before "AVP tracking locked" are ignored by the bridge, so wait for it.
 wait_new "Press F (or c) for CALIB_FULL" 90 0 || { log "no Vision Pro tracking after 90 s - is Tracking Streamer open on $AVP_IP? tmux attach -t $SESSION"; exit 1; }

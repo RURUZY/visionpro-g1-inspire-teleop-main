@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import time
+from threading import Event
 
 import numpy as np
 import zmq
@@ -143,6 +145,10 @@ class InspireHandController:
 
 def install_inspire_sim(endpoint="tcp://127.0.0.1:5556"):
     """Adapt only this launcher's MuJoCo instance; no physical hand DDS output."""
+    grasp_enabled = os.environ.get("SONIC_GRASP_DIAGNOSTICS", "0") == "1"
+    paint_enabled = os.environ.get("SONIC_PAINT_DIAGNOSTICS", "0") == "1"
+    if grasp_enabled and paint_enabled:
+        raise ValueError("SONIC_GRASP_DIAGNOSTICS and SONIC_PAINT_DIAGNOSTICS are mutually exclusive")
     import gear_sonic.utils.mujoco_sim.base_sim as base_sim
     from gear_sonic.utils.mujoco_sim.simulator_factory import SimulatorFactory
 
@@ -152,27 +158,66 @@ def install_inspire_sim(endpoint="tcp://127.0.0.1:5556"):
 
     class InspireEnv(original_env):
         def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+            self.paint_reset = None
+            if paint_enabled:
+                from g1_teleop.sim.paint_reset import PaintToolReset, viewer_reset_key
+                pending = Event()
+                with viewer_reset_key(pending.set):
+                    super().__init__(*args, **kwargs)
+                self.paint_reset = PaintToolReset(self.mj_model, pending)
+                print("[paint_reset] In the MuJoCo window, press R to return only the brush to the table.", flush=True)
+            else:
+                super().__init__(*args, **kwargs)
             self.torque_limit = np.max(np.abs(self.mj_model.actuator_ctrlrange), axis=1)
             self.inspire = InspireHandController(self.mj_model, self.mj_data, endpoint)
             self.grasp_diagnostics = None
-            import os
-            if os.environ.get("SONIC_GRASP_DIAGNOSTICS", "0") == "1":
+            if grasp_enabled:
                 from g1_teleop.sim.grasp_diagnostics import GraspRecorder
                 self.grasp_diagnostics = GraspRecorder(
                     self.mj_model, self.inspire,
                     endpoint=os.environ.get("SONIC_GRASP_ENDPOINT", "tcp://127.0.0.1:5558"),
                 )
+            elif paint_enabled:
+                from g1_teleop.sim.paint_diagnostics import PaintRecorder
+                try:
+                    self.grasp_diagnostics = PaintRecorder(
+                        self.mj_model, model_source=os.environ.get("SONIC_ROBOT_SCENE"))
+                except Exception:
+                    self.inspire.close()
+                    raise
+                viewer = getattr(self, "viewer", None)
+                if viewer is not None:
+                    import mujoco
+                    # The upstream default follows the pelvis from behind the
+                    # wall. Use a free view that exposes the handle and patch.
+                    with viewer.lock():
+                        viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+                        viewer.cam.lookat[:] = self.mj_model.stat.center
+                        viewer.cam.distance = 2.15
+                        viewer.cam.azimuth = 40
+                        viewer.cam.elevation = -25
+                        viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTPOINT] = True
+                        viewer.opt.flags[mujoco.mjtVisFlag.mjVIS_CONTACTFORCE] = True
 
         def compute_hand_torques(self):
             return self.inspire.torques(self.sim_dt)
 
         def sim_step(self):
             recorder = self.grasp_diagnostics
+            if self.paint_reset is not None:
+                event = self.paint_reset.apply_pending(self.mj_data)
+                if event is not None and recorder is not None:
+                    recorder.record_manual_reset(event)
             before = recorder.begin_step(self.mj_data) if recorder is not None else None
             self._grasp_before = before
             super().sim_step()
             self._grasp_before = None
+
+        def handle_keyboard_button(self, key):
+            if self.paint_reset is not None and key.lower() == "r":
+                self.paint_reset.request()
+            else:
+                super().handle_keyboard_button(key)
 
         def check_fall(self):
             # Capture the solved step before a fall can reset the simulator.

@@ -5,7 +5,10 @@ set -euo pipefail
 # Pair with: bin/sonic-deploy.sh + bin/sonic-teleop.sh
 
 source "$(dirname "$0")/_common.sh"
-g1_teleop_load_env
+# A task launcher can load .env once, then apply its scene/recorder settings.
+if [[ "${G1_TELEOP_ENV_PRELOADED:-0}" != "1" ]]; then
+  g1_teleop_load_env
+fi
 
 GR00T_ROOT="${GR00T_ROOT:-/mnt/newssd/GR00T-WholeBodyControl}"
 USER_VENV="${HOME}/.config/visionpro-g1-inspire-teleop/venv_sonic_sim"

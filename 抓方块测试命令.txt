@@ -1,0 +1,87 @@
+G1 抓方块测试命令（MuJoCo + Vision Pro）
+======================================
+
+前三个终端必开，第四个诊断窗口可选。
+每段都带有进入项目目录的命令，可直接复制对应段落。
+先结束旧的仿真和遥操作，不要同时启动两套。
+沿用 Vision Pro IP：192.168.2.5；如果 IP 变了，只替换这个地址。
+默认保留头显画面，不要添加 --no-mujoco-fpv。
+
+
+【终端 1】桌面方块场景 + 自动记录
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+SONIC_PAINT_DIAGNOSTICS=0 bash bin/sonic-sim-pick-diagnostics.sh
+
+
+【终端 2】仿真控制
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash run_sonic_deploy.sh sim
+
+等待出现 Init Done，再继续终端 3。
+
+
+【终端 3】Vision Pro 遥操作 + 自动校准
+
+先在 Vision Pro 打开 Tracking Streamer，启动追踪，然后运行：
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash solo_teleop.sh 192.168.2.5 --print-debug
+
+脚本会自动执行 F → ] → S → T，按照提示保持校准姿势。
+提示落地时：机器人还悬挂，才在 MuJoCo 窗口按 9，然后回终端按回车。
+如果机器人已经站在地上，直接回终端按回车，不要再次按 9。
+出现 teleop is live 后开始操作。
+
+
+【终端 4，可选】手部近景、关节曲线和接触力诊断
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash bin/grasp-diagnostics.sh
+
+窗口中用 left/right 选择观察手，front/side/top/whole 切换视角。
+
+
+【可选】继续拇指全行程对照实验
+
+如果要测试拇指全行程，用下面这段替换终端 3 的命令。
+普通模式与全行程模式二选一，不要同时启动。
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash solo_teleop.sh 192.168.2.5 --print-debug --sim-thumb-full-range
+
+已有个人校准会继续读取。启动后先空手检查手指，再抓方块。
+
+
+【本次测试动作】
+
+空手检查手指 → 抓住方块 → 抬高 5–10 cm → 保持 3 秒 → 放回桌面并松手。
+记录失败发生在对准、闭合、抬起、保持还是放回阶段。
+终端 1 自动记录，保存目录会打印在终端中：
+/home/epcap/projects/visionpro-g1-inspire-teleop-main/recordings/grasp_diagnostics_时间/
+
+
+【暂停遥操作】在任意另开的终端执行
+
+tmux send-keys -t tele p
+
+
+【查看遥操作终端】
+
+tmux attach -t tele
+
+离开 tmux 查看界面但保留进程：先按 Ctrl+B，再按 D。
+
+
+【结束本次测试】
+
+先放下方块，再执行：
+
+tmux send-keys -t tele o
+
+等待桥接退出，然后在终端 2、终端 1 分别按 Ctrl+C，关闭诊断窗口。
+等记录器正常关闭后，再查看 recording_status.json 确认保存状态。
+
+
+完整操作说明：同目录下 docs/OPERATIONS.md。

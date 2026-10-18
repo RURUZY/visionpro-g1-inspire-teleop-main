@@ -489,11 +489,20 @@ def parse_args():
         help="Disable simulated Inspire finger commands independently of MuJoCo FPV video.",
     )
     parser.set_defaults(enable_inspire_hand_sim=False)
-    parser.add_argument(
+    hand_dds_group = parser.add_mutually_exclusive_group()
+    hand_dds_group.add_argument(
         "--enable-inspire-hand-dds",
         action="store_true",
         help="Publish AVP finger tracking to physical Inspire hand DDS topic(s).",
     )
+    hand_dds_group.add_argument(
+        "--disable-inspire-hand-dds",
+        "--no-inspire-hand-dds",
+        dest="enable_inspire_hand_dds",
+        action="store_false",
+        help="Disable physical Inspire hand DDS output; inspire_sdkpy is not required.",
+    )
+    parser.set_defaults(enable_inspire_hand_dds=False)
     parser.add_argument("--inspire-hand-topic", default="inspire_hand")
     parser.add_argument(
         "--hand-dds-sides",
@@ -550,6 +559,15 @@ def parse_args():
     parser.add_argument("--thumb-bend-close-angle", type=int, default=200)
     parser.add_argument("--thumb-rotation-open-angle", type=int, default=200)
     parser.add_argument("--thumb-rotation-close-angle", type=int, default=800)
+    parser.add_argument(
+        "--sim-thumb-full-range",
+        action="store_true",
+        help=(
+            "Opt-in simulated thumb experiment: override both thumb output ranges "
+            "to 1000=open / 0=closed and disable command inversion. Requires "
+            "simulated hands without physical hand DDS; personal input calibration is retained."
+        ),
+    )
     parser.add_argument("--finger-range-scale", type=float, default=1.15)
     parser.add_argument("--thumb-bend-range-scale", type=float, default=1.35)
     parser.add_argument("--thumb-rotation-range-scale", type=float, default=1.25)
@@ -579,6 +597,11 @@ def parse_args():
         help="Keep head motion from commanding walking, e.g. for a stationary grasp test.",
     )
     parser.set_defaults(head_locomotion=False)
+    parser.add_argument(
+        "--locomotion-clutch",
+        action="store_true",
+        help="Start with walking/turning locked while arms stay live. B enables walking; Space locks it again.",
+    )
     parser.add_argument(
         "--hybrid-locomotion",
         action="store_true",
@@ -715,4 +738,14 @@ def parse_args():
         action="store_false",
         help="Use the non-inverted physical Inspire thumb-root command direction.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.sim_thumb_full_range:
+        if not args.enable_inspire_hand_sim or args.enable_inspire_hand_dds:
+            parser.error("--sim-thumb-full-range requires --enable-inspire-hand-sim without --enable-inspire-hand-dds")
+        # Calibrated units already run from open=0 to closed=1, even when the
+        # measured thumb angle decreases during opposition. Use the simulator's
+        # command direction directly, including its startup/tracking-loss pose.
+        args.thumb_bend_open_angle = args.thumb_rotation_open_angle = 1000
+        args.thumb_bend_close_angle = args.thumb_rotation_close_angle = 0
+        args.invert_thumb_rotation_command = False
+    return args

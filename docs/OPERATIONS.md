@@ -242,6 +242,55 @@ bash bin/calibrate-thumb.sh 192.168.2.5 --side right
 重启桥接后生效；先空手检查方向和范围，再抓物体。此流程针对当前仿真
 配置，生成的个人文件不要未经验证用于实机。左手可另用 `--side left`。
 
+### 已校准拇指的全行程对照实验
+
+2026-10-11 的抓取记录已保存 8,911 条样本，无记录器丢帧或写入错误。
+记录中存在右手承载、方块离桌且悬挂关闭的片段。空手时右拇指弯曲目标
+约 26.6°、实际约 26.5°，根部目标约 53.4°、实际约 53.3°；旧输出端点
+200–800 只覆盖模型约 20–80% 行程。左右手已有各自校准文件，无需重新
+采集这次基线。拇指抓住方块时也可能因物体接触而无法到达空手闭合角度。
+
+保留现有默认配置，另用 `--sim-thumb-full-range` 测试完整输出范围。
+该参数把双手两个拇指通道统一为 1000 张开、0 闭合，覆盖原拇指输出端点
+与命令反转选项。左右手仍读取各自的个人输入校准，四指参数不变；关节
+限位、PD 增益、力矩上限不变。只允许仿真手输出，开启实机手 DDS 时拒绝
+启动。去掉这个参数并重启桥接即可恢复原抓取配置。
+
+启动带诊断记录的场景与 deploy 后，在项目根目录运行：
+
+```bash
+mkdir -p recordings
+LOG="$PWD/recordings/bridge_thumb_full_$(date +%Y%m%d_%H%M%S).log" \
+bash solo_teleop.sh 192.168.2.5 \
+  --loco-velocity-gain 0 --loco-yaw-gain 0 --no-head-height-squat \
+  --sim-thumb-full-range
+```
+
+自动校准后，分别用左右手空手伸直、弯曲、外展、对掌，各保持 3 秒；
+对照修改后的目标/实际角度，再检查原先的方块抓放是否仍稳定。这是修改后
+的验证，不需要重新做输入校准。已落地时跳过 `9`，只确认自动流程提示。
+
+左手配置已存在，但上一轮抓取记录主要验证右手，仍需独立验收左手抓取。
+刷墙任务下一阶段按“抓住滚筒柄 → 提出杯托保持 → 空中直线移动 → 轻触墙面 →
+短距离刷动”推进。独立干滚筒、墙板和接触记录入口已增加，使用
+`bash run_sonic_sim_loop_paint.sh`，并配合 deploy 的 `sim` 模式及
+第三终端的 `bash bin/sonic-teleop-paint.sh --auto`（沿用 IP `192.168.2.5`，
+开启头显回传，T 后直接开启头显行走，关闭键盘移动）。无需按 B 解锁，
+不再使用空格锁定；指令上限为 0.15 m/s。自动流程结束后可执行
+`tmux attach -t tele` 查看桥接状态。场景不再有桌子：滚筒刷竖直插在右前方
+立柱的杯托里（滚筒朝上），右手原地即可握住竖直刷柄；自立式墙板前表面在 x=0.60 m，
+目标中心高 1.22 m、在右手前方。刷子掉落后移开双手，
+点击 MuJoCo 窗口按 R 可只复位刷子，保留当前校准、连接和机器人站位。
+刷墙专用头部仿真视角同时覆盖墙面目标与杯托里的刷柄。
+双手身体映射与已录制抓盒子工作流对齐，校准时两只手都需可追踪。
+完整命令见 [刷墙先导实验](PAINT_EXPERIMENT.md)；`--no-mujoco-fpv` 会关闭头显
+画面，不应加入正常头显操作命令。新记录器采集滚筒—墙面、手—工具
+接触和工具相对手腕姿态；没有模拟颜料转移，也没有自动执行或证明刷墙成功。
+以上仅指仿真任务。
+
+重复启动终端 3 时，保持 Tracking Streamer 打开并继续追踪；启动脚本先正常结束旧桥接，
+电脑端会自动重试无首帧／断流连接。头显端的重复连接效果仍需实测。
+
 Terminal 1:
 
 ```bash
@@ -294,8 +343,13 @@ Terminal 1:
 Terminal 2:
 
 ```bash
-./run_sonic_avp_teleop.sh <VP> --no-mujoco-fpv --no-inspire-hand-sim
+./run_sonic_avp_teleop.sh <VP> --no-mujoco-fpv --no-inspire-hand-sim --disable-inspire-hand-dds
 ```
+
+`--disable-inspire-hand-dds` (alias `--no-inspire-hand-dds`) explicitly disables
+physical finger commands. This mode does not require `inspire_sdkpy` or the hand
+driver processes. Arm tracking remains available. Replace any existing
+`--enable-inspire-hand-dds` flag; the enable and disable flags are mutually exclusive.
 
 For keyboard-assisted positioning:
 
@@ -303,6 +357,7 @@ For keyboard-assisted positioning:
 ./run_sonic_avp_teleop.sh <VP> \
   --no-mujoco-fpv \
   --no-inspire-hand-sim \
+  --disable-inspire-hand-dds \
   --hybrid-locomotion
 ```
 

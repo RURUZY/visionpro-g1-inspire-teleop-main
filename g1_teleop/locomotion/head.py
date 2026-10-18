@@ -379,11 +379,15 @@ def compute_head_locomotion_velocity(
     if float(np.hypot(out_vx, out_vy)) < out_dz:
         out_vx = 0.0
         out_vy = 0.0
-        state.smooth_vx = 0.0
-        state.smooth_vy = 0.0
+        # Keep integrating deliberate slow input through the output deadband.
+        # Clearing every sub-threshold frame made walking require a sharp jerk.
+        if vx == 0.0 and vy == 0.0:
+            state.smooth_vx = 0.0
+            state.smooth_vy = 0.0
     if abs(out_vyaw) < out_dz:
         out_vyaw = 0.0
-        state.smooth_vyaw = 0.0
+        if vyaw == 0.0:
+            state.smooth_vyaw = 0.0
 
     state.debug = {
         "delta_body": np.round(delta_body, 3).tolist(),

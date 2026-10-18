@@ -37,6 +37,8 @@ class MujocoFpvStreamer:
         self._frames_sent = 0
         self._last_warn = 0.0
         self._started = False
+        self._connected = False
+        self._connection_notice = time.monotonic()
 
         streamer.configure_video(
             device=None,
@@ -47,7 +49,7 @@ class MujocoFpvStreamer:
         streamer.start_webrtc(port=int(webrtc_port), blocking=False)
         self._started = True
         print(
-            f"[mujoco_fpv] WebRTC video -> Vision Pro on port {webrtc_port} "
+            f"[mujoco_fpv] Video server started; waiting for Vision Pro on port {webrtc_port} "
             f"({video_size}, source tcp://{camera_host}:{camera_port}/{camera_name})"
         )
         print(
@@ -56,6 +58,19 @@ class MujocoFpvStreamer:
         )
 
     def push_latest(self) -> bool:
+        connected = bool(getattr(self._streamer, "_webrtc_connected", False))
+        now = time.monotonic()
+        if connected and not self._connected:
+            print("[mujoco_fpv] Headset video connection established.", flush=True)
+            self._connection_notice = now
+        elif not connected and (self._connected or now - self._connection_notice > 10.0):
+            print(
+                "[mujoco_fpv] Waiting for headset video connection. "
+                "Keep Tracking Streamer running; enable its video/immersive view if offered. "
+                "Camera frames alone do not confirm headset video.", flush=True
+            )
+            self._connection_notice = now
+        self._connected = connected
         data = self._client.read(blocking=False)
         if not data or not data.get("images"):
             now = time.time()
@@ -81,7 +96,7 @@ class MujocoFpvStreamer:
         self._streamer.update_frame(frame)
         self._frames_sent += 1
         if self._frames_sent == 1:
-            print(f"[mujoco_fpv] First frame sent shape={frame.shape}")
+            print(f"[mujoco_fpv] First camera frame buffered shape={frame.shape}; awaiting/using headset connection.")
         return True
 
     def close(self) -> None:

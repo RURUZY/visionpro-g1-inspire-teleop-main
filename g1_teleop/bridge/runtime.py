@@ -47,6 +47,7 @@ from g1_teleop.calibration.session import (
 )
 from g1_teleop.hand.mapping import InspireHandMapper, format_debug as format_hand_debug
 from g1_teleop.hand.tracking_guard import SimHandTrackingGuard
+from g1_teleop.locomotion.clutch import LocomotionClutch
 from g1_teleop.locomotion.head import (
     HeadHeightSquatConfig,
     HeadLocomotionConfig,
@@ -73,6 +74,9 @@ if vp_root not in sys.path:
     sys.path.insert(0, vp_root)
 
 from avp_stream import VisionProStreamer
+from g1_teleop.bridge.avp_connection import managed_streamer_class
+
+VisionProStreamer = managed_streamer_class(VisionProStreamer)
 
 
 def main():
@@ -104,6 +108,8 @@ def main():
     kb_state = BridgeState()
     kb_controller = KeyboardLocomotionController()
     kb_hold_tracker = KeyboardHoldTracker()
+    loco_clutch = LocomotionClutch(enabled=args.locomotion_clutch)
+    walking_inputs = "head + keyboard" if args.hybrid_locomotion else "headset"
     eval_logger = RemsEvalLogger(args.eval_log) if args.eval_log else None
     pending_waypoint_mark: int | None = None
     smoother = PositionSmoother()
@@ -336,6 +342,8 @@ def main():
             f"Eval log ON: {args.eval_log}  "
             "Mark Task A waypoints during teleop with keys 4-8 (WP1-WP5)."
         )
+    if loco_clutch.enabled:
+        print(f"Locomotion LOCKED: arms/hands stay live after T. B = enable {walking_inputs} walking; Space = lock walking/turning.")
     if args.head_height_squat:
         print(
             "Head-height squat ON: duck to lower pelvis (mode 4/6). "
@@ -343,9 +351,9 @@ def main():
         )
         if args.head_vertical_follow:
             print(f"Head vertical follow ON: scale={args.head_vertical_scale}")
-    if args.enable_mujoco_fpv:
+    if fpv_streamer is not None:
         print(
-            "MuJoCo FPV ON: robot head_camera -> Vision Pro WebRTC "
+            "MuJoCo FPV server started; awaiting headset video connection "
             f"(sim ZMQ {args.mujoco_camera_host}:{args.mujoco_camera_port}, "
             f"webrtc :{args.avp_webrtc_port})"
         )
@@ -362,6 +370,8 @@ def main():
         print(f"Publishing sim Inspire hand commands on topic '{args.inspire_hand_topic}'.")
         print(f"  Left hand calib:  {left_hand_calib_file}")
         print(f"  Right hand calib: {right_hand_calib_file}")
+        if args.sim_thumb_full_range:
+            print("  Sim thumb full range ON: both hands, 1000=open / 0=closed; personal calibration retained.")
     if dds_hand_publisher is not None:
         topics = ", ".join(f"rt/inspire_hand/ctrl/{side}" for side in dds_hand_publisher.sides)
         if hand_dds_sides == "both":
@@ -468,9 +478,29 @@ def main():
                 flush=True,
             )
         sync_kb_body_facing_from_robot()
+        if loco_clutch.enabled:
+            loco_clutch.lock(0.0)
+            kb_controller.reset_motion()
+            kb_hold_tracker.clear()
+            print("  Locomotion LOCKED after calibration; B enables walking, Space locks it.")
+
+    def lock_locomotion() -> None:
+        feedback = feedback_client.latest() if feedback_client is not None else None
+        robot_yaw = loco_robot_base_yaw(feedback)
+        angle = state.facing_angle
+        if robot_yaw is not None and head_loco_state.robot_base_yaw_at_calib is not None:
+            angle = float(robot_yaw - head_loco_state.robot_base_yaw_at_calib)
+        loco_clutch.lock(angle)
+        kb_controller.reset_motion()
+        kb_controller.sync_body_facing(angle)
+        kb_hold_tracker.clear()
+        state.set_idle()
+        kb_state.set_idle()
 
     def begin_calib_hold(kind: str) -> None:
         nonlocal calib_hold_until, official_base_positions, official_base_orientations
+        if loco_clutch.enabled:
+            lock_locomotion()
         arm_hold(calib_session, kind, args.calib_hold_sec)
         calib_hold_until = calib_session.hold_deadline
         if kind == "full":
@@ -597,6 +627,9 @@ def main():
             last_start = 0.0
             while True:
                 now = time.time()
+                # Camera feedback must also work while waiting for the first pose.
+                if fpv_streamer is not None:
+                    fpv_streamer.push_latest()
                 tracking = streamer.get_latest()
 
                 if tracking is not None and tracking.head is not None and initial_head_robot_pos is None:
@@ -629,6 +662,8 @@ def main():
                         print("Sent SONIC start command in planner mode (stand-hold until T).")
 
                 if initial_head_robot_pos is None:
+                    if any(key in ("o", "O", "\x03") for key in keyboard.read_keys()):
+                        break
                     if args.stream_init_pose:
                         publish_init_pose_hold(now, ramp=policy_started)
                     time.sleep(period if args.stream_init_pose else 0.02)
@@ -636,9 +671,6 @@ def main():
 
                 if feedback_client is not None:
                     feedback_client.poll()
-
-                if fpv_streamer is not None:
-                    fpv_streamer.push_latest()
 
                 head_pose, left_pose, right_pose = tracking_arm_poses(tracking, args)
 
@@ -653,10 +685,28 @@ def main():
                         commit_calib_hold()
 
                 keys = keyboard.read_keys()
-                if keys and args.head_locomotion and args.hybrid_locomotion:
+                if keys and args.head_locomotion and args.hybrid_locomotion and not loco_clutch.locked:
                     kb_hold_tracker.refresh(keys, now)
 
                 for key in keys:
+                    if loco_clutch.enabled and key in ("b", "B", " ", "r", "R"):
+                        if key in (" ", "r", "R"):
+                            lock_locomotion()
+                            print("\nLocomotion LOCKED: no walk/turn commands; arms/hands remain live.")
+                        elif not live_teleop or stand_hold or now < calib_hold_until:
+                            print("\nWalking stays locked until calibration is complete and T is live.")
+                        elif head_pose is None:
+                            print("\nWalking stays locked: head tracking unavailable.")
+                        elif loco_clutch.unlock(head_loco_state, head_pose):
+                            head_loco_calib_pos = head_pose[:3, 3].copy()
+                            head_loco_calib_rot = head_loco_state.calib_rot.copy()
+                            last_head_loco_time = None
+                            kb_controller.reset_motion()
+                            kb_controller.sync_body_facing(loco_clutch.facing_angle)
+                            kb_controller.has_control = True
+                            kb_hold_tracker.clear()
+                            print(f"\nLocomotion ENABLED: {walking_inputs} walking; Space locks walking before grasping.")
+                        continue
                     if args.staged_calib and args.mapping_mode == "official-calib":
                         if key in ("f", "F", "c", "C"):
                             if calib_session.phase in (
@@ -756,6 +806,8 @@ def main():
                                     "(H = re-sync facing/height only)."
                                 )
                             msg = "TELEOP live: AVP hands + head walk/squat."
+                            if loco_clutch.enabled:
+                                msg = "TELEOP live: arms/hands active, locomotion LOCKED. B = walk; Space = lock."
                             print(f"\n{msg}")
                             continue
                         if key in ("h", "H"):
@@ -769,6 +821,8 @@ def main():
                                 print("\nPAUSE only applies during teleop.")
                                 continue
                             calib_session.paused = not calib_session.paused
+                            if loco_clutch.enabled:
+                                lock_locomotion()
                             if calib_session.paused:
                                 calib_session.phase = CalibPhase.PAUSED
                                 stand_hold = True
@@ -805,7 +859,9 @@ def main():
                         if head_pose is not None:
                             apply_loco_sync(head_pose)
                         msg = "Teleop enabled: AVP hands drive upper body."
-                        if args.head_locomotion:
+                        if loco_clutch.enabled:
+                            msg += " Locomotion LOCKED. B = walk; Space = lock."
+                        elif args.head_locomotion:
                             msg += " Lean head to walk/turn."
                             if args.hybrid_locomotion:
                                 msg += " Hold W/S to move; space stops (keeps facing)."
@@ -868,6 +924,10 @@ def main():
                         head_locomotion=args.head_locomotion,
                         hybrid_locomotion=args.hybrid_locomotion,
                         keyboard_walk_speed=args.keyboard_loco_speed,
+                        keyboard_movement_enabled=(
+                            not loco_clutch.enabled
+                            or (args.hybrid_locomotion and not loco_clutch.locked)
+                        ),
                     ):
                         if eval_logger is not None:
                             eval_logger.close()
@@ -890,6 +950,10 @@ def main():
                 if head_pose is None and tracking is not None and tracking.head is not None:
                     head_pose = head_pose_from_tracking(tracking)
 
+                if loco_clutch.enabled and not loco_clutch.locked and head_pose is None:
+                    lock_locomotion()
+                    print("\nLocomotion LOCKED: head tracking unavailable; B resumes after tracking returns.")
+                head_motion_allowed = head_motion_allowed and not loco_clutch.locked
                 planner_cmd = None
                 head_planner_cmd = None
                 kb_planner_cmd = None
@@ -975,6 +1039,7 @@ def main():
                     )
                     head_loco_state.debug.update(height_debug)
 
+                planner_cmd = loco_clutch.filter(planner_cmd)
                 if planner_cmd is not None:
                     state.mode = planner_cmd.mode
                     state.movement = planner_cmd.movement.copy()
@@ -1269,6 +1334,8 @@ def main():
                             "vr_pos=",
                             np.round(vr_position, 3).tolist(),
                         )
+                        if loco_clutch.enabled:
+                            print("locomotion=", "LOCKED" if loco_clutch.locked else "ENABLED")
                         if target_debug:
                             if target_debug.get("arm_hold"):
                                 print("arm_hold=", target_debug.get("arm_hold"))
@@ -1334,7 +1401,10 @@ def main():
                 dds_hand_publisher.safe_open(hand_open_command)
             except Exception as exc:
                 print(f"Failed to safe-open Inspire hand cleanly: {exc}")
-        publisher.close()
+        try:
+            publisher.close()
+        finally:
+            streamer.cleanup()
 
 
 if __name__ == "__main__":

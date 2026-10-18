@@ -1,0 +1,86 @@
+<mujoco model="g1_inspire_dry_roller_scene">
+  <!-- Keep this include first: SONIC requires the original robot joint order. -->
+  <include file="@G1_ROBOT_INCLUDE@"/>
+
+  <statistic center="0.35 -0.10 0.95" extent="1.6"/>
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="40" elevation="-25"/>
+  </visual>
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="paint_floor_texture" builtin="checker" rgb1="0.20 0.25 0.30"
+             rgb2="0.14 0.18 0.22" width="300" height="300"/>
+    <material name="paint_floor_material" texture="paint_floor_texture" texuniform="true" texrepeat="5 5"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 -1 2.5" dir="0 0 -1" directional="true"/>
+    <geom name="floor" type="plane" size="0 0 0.05" material="paint_floor_material" friction="1 0.005 0.0001"/>
+    <site name="com_marker" pos="0.1 0 0" size="0.025" rgba="1 0 0 0.5"/>
+
+    <!-- Free-standing practice panel directly in front of the robot. Nothing
+         stands between the robot and the panel, so no reaching over a table. -->
+    <body name="paint_wall_body" pos="@WALL_CENTER_X@ @WALL_CENTER_Y@ @WALL_CENTER_Z@">
+      <geom name="paint_wall" type="box" size="0.025 @WALL_HALF_WIDTH@ 0.30" rgba="0.87 0.87 0.83 1"
+            friction="0.8 0.005 0.0001" condim="3"/>
+      <geom name="paint_wall_post_left" type="box" pos="0 @WALL_POST_Y@ @WALL_LEG_CENTER_Z@"
+            size="0.025 0.025 @WALL_LEG_HALF_HEIGHT@" rgba="0.35 0.35 0.38 1"/>
+      <geom name="paint_wall_post_right" type="box" pos="0 @WALL_POST_NEG_Y@ @WALL_LEG_CENTER_Z@"
+            size="0.025 0.025 @WALL_LEG_HALF_HEIGHT@" rgba="0.35 0.35 0.38 1"/>
+      <geom name="paint_wall_foot_left" type="box" pos="0 @WALL_POST_Y@ @WALL_FOOT_Z@"
+            size="0.14 0.055 0.02" rgba="0.35 0.35 0.38 1"/>
+      <geom name="paint_wall_foot_right" type="box" pos="0 @WALL_POST_NEG_Y@ @WALL_FOOT_Z@"
+            size="0.14 0.055 0.02" rgba="0.35 0.35 0.38 1"/>
+    </body>
+    <!-- Visual guide only: this site adds no collision or simulated paint. -->
+    <site name="paint_target_patch" type="box" pos="@TARGET_X@ @TARGET_Y@ @TARGET_Z@"
+          size="0.001 0.12 0.15" rgba="0.20 0.65 0.90 0.28"/>
+
+    <!-- Pedestal with a cup holder in front of the right hand. The roller stands
+         upright, handle down, so the right hand closes around a vertical handle
+         at waist height without walking. The cup only supports; it is static. -->
+    <body name="paint_stand_body" pos="@STAND_X@ @STAND_Y@ 0">
+      <geom name="paint_stand_column" type="box" pos="0 0 @COLUMN_CENTER_Z@" size="0.06 0.06 @COLUMN_HALF_HEIGHT@"
+            rgba="0.55 0.42 0.28 1" friction="1 0.005 0.0001"/>
+      <geom name="paint_stand_foot" type="box" pos="0 0 0.01" size="0.14 0.14 0.01" rgba="0.35 0.35 0.38 1"/>
+      <geom name="paint_holder_front" type="box" pos="@CUP_OFFSET@ 0 @CUP_CENTER_Z@" size="0.003 0.024 0.03"
+            rgba="0.28 0.32 0.36 1" friction="0.6 0.005 0.0001"/>
+      <geom name="paint_holder_back" type="box" pos="-@CUP_OFFSET@ 0 @CUP_CENTER_Z@" size="0.003 0.024 0.03"
+            rgba="0.28 0.32 0.36 1" friction="0.6 0.005 0.0001"/>
+      <geom name="paint_holder_left" type="box" pos="0 @CUP_OFFSET@ @CUP_CENTER_Z@" size="0.018 0.003 0.03"
+            rgba="0.28 0.32 0.36 1" friction="0.6 0.005 0.0001"/>
+      <geom name="paint_holder_right" type="box" pos="0 -@CUP_OFFSET@ @CUP_CENTER_Z@" size="0.018 0.003 0.03"
+            rgba="0.28 0.32 0.36 1" friction="0.6 0.005 0.0001"/>
+    </body>
+
+    <!-- Independent free object: grasping requires actual finger contact.
+         The handle centre is the tool origin. No weld, mocap or added actuator. -->
+    <body name="paint_tool_body" pos="@TOOL_POS@" quat="@TOOL_QUAT@">
+      <freejoint name="paint_tool_free"/>
+      <geom name="paint_handle" type="capsule" fromto="-0.069 0 0 0.069 0 0" size="0.016"
+            mass="0.075" rgba="0.14 0.23 0.35 1" friction="1.2 0.01 0.0001" condim="4"/>
+      <!-- Centre of the exposed handle above the holder rim. -->
+      <site name="paint_handle_grip" pos="0.025 0 0" size="0.005" rgba="0.15 0.9 0.3 0.7"/>
+      <geom name="paint_frame_stem" type="capsule" fromto="0.070 0 0 0.115 0 0" size="0.004"
+            mass="0.010" rgba="0.45 0.48 0.50 1"/>
+      <geom name="paint_frame_offset" type="capsule" fromto="0.115 0 0 0.115 0.10 0" size="0.004"
+            mass="0.012" rgba="0.45 0.48 0.50 1"/>
+      <geom name="paint_frame_arm" type="capsule" fromto="0.115 0.10 0 0.195 0.10 0" size="0.004"
+            mass="0.010" rgba="0.45 0.48 0.50 1"/>
+      <geom name="paint_frame_axle" type="capsule" fromto="0.195 0.10 0 0.195 0 0" size="0.003"
+            mass="0.010" rgba="0.45 0.48 0.50 1"/>
+      <body name="paint_roller_body" pos="0.195 0 0">
+        <joint name="paint_roller_hinge" type="hinge" axis="0 1 0" limited="false"
+               damping="0.00002" armature="0.000002" frictionloss="0.00001"/>
+        <geom name="paint_roller" type="cylinder" size="0.032 0.075" quat="0.7071067812 0.7071067812 0 0"
+              mass="0.090" rgba="0.96 0.80 0.24 1" friction="0.9 0.005 0.0001" condim="3"
+              solref="0.008 1" solimp="0.9 0.95 0.001"/>
+        <!-- A visual stripe makes passive rotation visible without new contact. -->
+        <site name="paint_roller_rotation_marker" type="box" pos="0.032 0 0"
+              size="0.0005 0.065 0.003" rgba="0.55 0.31 0.04 1"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

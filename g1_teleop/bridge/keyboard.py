@@ -111,8 +111,16 @@ def handle_key(
     head_locomotion: bool = False,
     hybrid_locomotion: bool = False,
     keyboard_walk_speed: float = 0.42,
+    keyboard_movement_enabled: bool = True,
 ) -> bool:
     """Handle non-hold planner keys (calibration / stop bridge). Movement uses hold tracker when hybrid."""
+    # Stop must take precedence over the head-only dispatch branch below.
+    if key in ("o", "O", "\x03"):
+        return False
+    if head_locomotion and not hybrid_locomotion and keyboard_walk_speed <= 0.0:
+        keyboard_movement_enabled = False
+    if not keyboard_movement_enabled and key.lower() in HELD_KEYS | {"1", "2", "3"}:
+        return True
     if key == "0":
         state.set_idle()
     elif key == "1":
@@ -149,8 +157,6 @@ def handle_key(
             state.movement[:] = np.array([np.sin(state.facing_angle), -np.cos(state.facing_angle), 0.0])
             if state.mode == 0:
                 state.set_mode(1)
-    elif key in ("o", "O", "\x03"):
-        return False
     elif key in ("t", "T"):
         return True
     return True

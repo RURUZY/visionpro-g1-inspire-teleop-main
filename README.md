@@ -103,15 +103,44 @@ Two terminals only:
 ./run_sonic_deploy.sh real
 
 # Terminal 2
-./run_sonic_avp_teleop.sh <VISION_PRO_IP> --no-mujoco-fpv --no-inspire-hand-sim
+./run_sonic_avp_teleop.sh <VISION_PRO_IP> --no-mujoco-fpv --no-inspire-hand-sim --disable-inspire-hand-dds
 # example:
-./run_sonic_avp_teleop.sh 192.168.2.14 --no-mujoco-fpv --no-inspire-hand-sim
+./run_sonic_avp_teleop.sh 192.168.2.14 --no-mujoco-fpv --no-inspire-hand-sim --disable-inspire-hand-dds
 ```
 
 `--no-mujoco-fpv` turns off sim camera streaming (there is no MuJoCo on real hardware).  
 `--no-inspire-hand-sim` separately turns off simulated finger commands.
+`--disable-inspire-hand-dds` explicitly disables physical finger commands, so this
+workflow does not require `inspire_sdkpy` or the physical hand drivers.
 
 Physical Inspire hand on the robot uses a separate DDS driver — not covered in these three workflows.
+
+---
+
+## Dry roller experiment — MuJoCo
+
+The independent roller must be grasped with the simulated hand. Its passive axle
+and the wall have physical contact; this does not simulate paint deposition.
+Contact and pose logs are written automatically under `recordings/`.
+
+```bash
+# Terminal 1: upright roller in a holder, wall, and contact recorder
+bash run_sonic_sim_loop_paint.sh
+# Terminal 2
+bash run_sonic_deploy.sh sim
+# Terminal 3: automatic keys, video, headset walking after calibration
+bash bin/sonic-teleop-paint.sh --auto
+# Optional: attach to view the bridge after automatic calibration
+tmux attach -t tele
+```
+
+The default Vision Pro IP is `192.168.2.5`; optionally pass your IP before `--auto`.
+Headset walking is active after T (0.15 m/s limit), with no B unlock required.
+Keyboard movement is disabled in this experiment.
+Both hands use the recorded cube workflow's mapping settings. The lower table and
+centred handle leave clearance for the recorded engage/landing hand paths.
+Follow the [five-trial experiment instructions](docs/PAINT_EXPERIMENT.md).
+Scene checks do not establish grasping or wall-stroke success.
 
 ---
 

@@ -1,0 +1,94 @@
+G1 刷墙测试命令（MuJoCo + Vision Pro）
+====================================
+
+依次启动三个终端，每段可以直接复制。
+首次启动或切换场景时先退出旧测试，避免端口冲突；连续练习不用重启三个终端。
+Vision Pro 地址沿用 192.168.2.5；如果地址变了，替换终端 3 的 IP。
+本流程使用仿真。场景自动生成，自动保存刷墙接触记录，并保留头显画面。
+
+
+【终端 1】刷墙场景 + 接触记录 + 头部相机图像
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash run_sonic_sim_loop_paint.sh
+
+等待 MuJoCo 窗口出现。终端应显示 Camera publish: ON。
+场景里没有桌子：滚筒刷竖直插在右前方立柱的杯托里（刷柄朝下、滚筒朝上），
+墙在正前方，蓝色目标区在右手前方。机器人不用走路就能握到刷柄。
+绿色抓握标记和墙上蓝色目标区都在机器人初始正前方中间。
+场景位置更新需停止旧测试，再按终端 1 → 2 → 3 重新启动；R 只复位刷子，不加载新场景。
+
+
+【终端 2】SONIC 仿真控制
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash run_sonic_deploy.sh sim
+
+等待出现 Init Done，再启动终端 3。
+
+
+【终端 3】Vision Pro 遥操作 + 自动校准 + 头显画面
+
+先戴好 Vision Pro，打开 Tracking Streamer 并启动追踪；之后保持应用打开。
+重复运行终端 3 时，电脑端会正常关闭旧追踪连接并自动重连。
+保持双手可见，按终端提示保持校准姿势。
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash bin/sonic-teleop-paint.sh 192.168.2.5 --auto --enable-mujoco-fpv
+
+头显画面：视频连接通知会在追踪就绪后自动发送，断线后会重试。
+日志出现 Headset video connection established 才表示视频连接已建立。
+First camera frame buffered 只表示电脑读到了相机画面。
+若 Tracking Streamer 提供视频／沉浸显示开关，需在头显里打开。
+仅重启遥操作时，终端 1、2 可以保持运行；修改场景位置则按 1 → 2 → 3 重新启动。
+
+脚本自动执行 F → ] → S → T，中间仍需确认落地：
+机器人还悬挂时，在 MuJoCo 窗口按 9，待落地站稳后回终端 3 按 Enter。
+如果已经站在地上，直接回终端 3 按 Enter，不要再按 9。
+
+T 后头显行走直接生效，不需要按 B；空格不是行走锁定键。
+缓慢移动头显可调整站位，停止移动后行走指令逐渐回零。
+双手和手指遥操作保留，键盘 WASD 移动关闭。
+站稳后先空手检查，再用右手从侧面握住竖直刷柄（拇指朝上），向上提出杯托，
+刷柄下端朝自己倾斜，让滚筒贴到蓝色目标区上下做短距离干刷。
+
+
+【可选】查看遥操作状态
+
+tmux attach -t tele
+
+退出查看但保留遥操作进程：先按 Ctrl+B，再按 D。
+
+
+【刷子掉了，重新开始一轮】
+
+停止移动、张开手并把手移离杯托，点击 MuJoCo 窗口后按 R。
+刷子回到杯托里，机器人站位、校准和头显连接保持，不用重开终端或 Tracking Streamer。
+如果终端 1 提示 Return position occupied，移开双手后再按 R。
+人工复位会记入 events.jsonl 并开始新的 episode。
+
+
+【可选】沿用仿真拇指全行程对照实验
+
+用下面命令替换终端 3 的启动命令，两者不要同时运行：
+
+cd /home/epcap/projects/visionpro-g1-inspire-teleop-main
+bash bin/sonic-teleop-paint.sh 192.168.2.5 --auto --enable-mujoco-fpv --sim-thumb-full-range
+
+已有个人校准继续读取；启动后先空手检查手指。
+
+
+【暂停遥操作】在另一个终端执行
+
+tmux send-keys -t tele p
+
+
+【结束测试】先放下工具，再执行
+
+tmux send-keys -t tele o
+
+等待桥接退出，然后在终端 2、终端 1 分别按 Ctrl+C。
+接触记录保存在 recordings/paint_diagnostics_时间/，实际路径会打印在终端 1。
+刷墙接触记录已由终端 1 自动开启，不需要启动抓方块的诊断窗口。
+
+完整说明：docs/PAINT_EXPERIMENT.md
