@@ -19,7 +19,10 @@
    handle angle that comes out level under the operator's natural grip.
 4. Table docking. The table (a mocap body) starts parked TABLE_PARK_OFFSET farther away so the
    arm swing at ] and the drop at 9 cannot touch it; once the band is released and the robot has
-   stood still for DOCK_AFTER_S, the table and the sponge on it slide in to their final place.
+   stood still for DOCK_AFTER_S, the table and the sponge on it slide in to the layout of
+   generate_sponge_scene.py placed RELATIVE TO WHERE THE ROBOT ACTUALLY STANDS. The landing step
+   varies from ~0 to 0.30 m between runs even with the lower hang, so a fixed world position
+   left the robot pressed against the table after a short forward step.
    A practice convenience, as if someone pushed the table over after the robot stood up.
 5. Faster sim loop. Profiling on the Jetson (68 steps/s = 0.34x real time) showed the desktop
    viewer sync costs ~17 ms per call at 50 Hz, and the upstream per-step rate limiter sleeps on
@@ -50,7 +53,7 @@ OPEN_FRACTION = .3       # below this the hand counts as opened again
 PIN_TIMEOUT_S = 8.       # time to close the hand after pressing G
 DOCK_AFTER_S = 2.        # standing time after the band is released before the table moves in
 DOCK_DURATION_S = 1.5
-DOCK_MAX_PELVIS_X = .12  # the robot must not stand closer than this to dock the table
+LAYOUT_PELVIS_XY = np.array([-.02, 0.])  # stance the scene layout and reach tests assume
 DOCK_MAX_SPEED = .05     # m/s pelvis speed that counts as standing still
 TIP_ANGLE_DEG = 60.      # handle tilt from vertical that counts as tipped over
 TIP_HOLD_S = 1.5         # tipped this long before the automatic return
@@ -85,7 +88,8 @@ class SpongeAids:
         self.mocap = int(table.mocapid[0])
         self.table_park = model.body_pos[table.id].copy()
         from generate_sponge_scene import TABLE_PARK_OFFSET
-        self.dock_shift = np.array([-TABLE_PARK_OFFSET, 0., 0.])
+        self.park_offset = TABLE_PARK_OFFSET
+        self.dock_shift = np.array([-TABLE_PARK_OFFSET, 0., 0.])  # replaced at dock time (robot stance)
         self.standing_since = self.dock_started = None
         self.docked = False
         self.tipped_since = None
@@ -100,7 +104,6 @@ class SpongeAids:
                 self.hand_bodies.add(body)
         self.grip_log = None
         self.grip_log_last = -1.
-        self.warned_close = False
 
     def dock(self, data, band_enabled):
         """Slide the table (and the sponge resting on it) in after the robot has stood for a while."""
@@ -111,16 +114,14 @@ class SpongeAids:
             self.standing_since = (self.standing_since or data.time) if still else None
             if self.standing_since is None or data.time - self.standing_since < DOCK_AFTER_S:
                 return
-            if data.qpos[0] > DOCK_MAX_PELVIS_X:
-                if not self.warned_close:
-                    print('[sponge] Robot stands too far forward; table stays parked. Step back to dock it.', flush=True)
-                    self.warned_close = True
-                return
+            stance = data.qpos[:2] - LAYOUT_PELVIS_XY
+            self.dock_shift = np.array([-self.park_offset + stance[0], stance[1], 0.])
             self.dock_started = data.time
             self.sponge_start = data.qpos[self.qpos].copy()
             on_table = abs(self.sponge_start[2] - self.home[2]) < .02
             self.carry_sponge = on_table and self.pin_started is None
-            print('[sponge] Robot is standing; moving the table in.', flush=True)
+            print(f'[sponge] Robot is standing at x={data.qpos[0]:+.2f} y={data.qpos[1]:+.2f} m; '
+                  'moving the table in front of it.', flush=True)
         u = min(1., (data.time - self.dock_started) / DOCK_DURATION_S)
         u = u * u * (3 - 2 * u)
         data.mocap_pos[self.mocap] = self.table_park + u * self.dock_shift

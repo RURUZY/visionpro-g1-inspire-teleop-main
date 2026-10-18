@@ -194,11 +194,11 @@ def test_existing_bridge_drives_both_hands_and_timeout(scene):
 def test_table_docks_after_standing_and_carries_sponge(scene):
     import sys
     sys.path.insert(0, str(TOOLS))
-    from sponge_sim_entry import SpongeAids, DOCK_AFTER_S, DOCK_DURATION_S
+    from sponge_sim_entry import SpongeAids, DOCK_AFTER_S, DOCK_DURATION_S, LAYOUT_PELVIS_XY
     m, d = scene
     aids = SpongeAids(m)
     d.qpos[:60] = startup_samples()[-1]['robot_qpos']
-    d.qpos[:2] = 0
+    d.qpos[:2] = LAYOUT_PELVIS_XY
     mujoco.mj_forward(m, d)
     start = d.qpos[aids.qpos].copy()
     aids.dock(d, band_enabled=True)  # still hanging: nothing moves
@@ -216,20 +216,26 @@ def test_table_docks_after_standing_and_carries_sponge(scene):
     assert abs(aids.home[0] - generator.SPONGE_XY[0]) < 1e-9
 
 
-def test_table_stays_parked_when_robot_stands_too_close(scene):
+def test_table_docks_relative_to_where_the_robot_stands(scene):
     import sys
     sys.path.insert(0, str(TOOLS))
-    from sponge_sim_entry import SpongeAids, DOCK_AFTER_S
+    from sponge_sim_entry import SpongeAids, DOCK_AFTER_S, DOCK_DURATION_S, LAYOUT_PELVIS_XY
     m, d = scene
     aids = SpongeAids(m)
     d.qpos[:60] = startup_samples()[-1]['robot_qpos']
-    d.qpos[0] = .3
+    d.qpos[:2] = [.30, -.08]  # a long forward landing step, as seen in a recorded run
     d.qvel[:] = 0
-    for k in range(int((DOCK_AFTER_S + 1) / .005)):
-        d.time = k * .005
+    mujoco.mj_forward(m, d)
+    t = 0.
+    while not aids.docked and t < DOCK_AFTER_S + DOCK_DURATION_S + 1:
+        d.time = t
         aids.dock(d, band_enabled=False)
-    assert not aids.docked and aids.dock_started is None
-
+        t += .005
+    assert aids.docked
+    stance = np.array([.30, -.08]) - LAYOUT_PELVIS_XY
+    np.testing.assert_allclose(aids.home[:2], np.array(generator.SPONGE_XY) + stance, atol=1e-9)
+    table_front = d.mocap_pos[aids.mocap][0] - .22
+    assert abs(table_front - (generator.TABLE_FRONT_X + stance[0])) < 1e-9
 
 def test_tipped_sponge_returns_upright_after_docking(scene):
     import sys
