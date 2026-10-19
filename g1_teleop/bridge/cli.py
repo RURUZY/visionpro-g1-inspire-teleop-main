@@ -391,6 +391,13 @@ def parse_args():
         help="Upper robot-X limit for hand targets after official-calib mapping.",
     )
     parser.add_argument(
+        "--hand-cross-limit",
+        type=float,
+        default=None,
+        help="If set, a hand target may cross the body midline by at most this many metres "
+        "(right hand y <= limit, left hand y >= -limit). Off by default.",
+    )
+    parser.add_argument(
         "--robot-init-pose",
         choices=("forearms-forward", "debug-ready", "arms-forward", "low-ready", "custom"),
         default="forearms-forward",

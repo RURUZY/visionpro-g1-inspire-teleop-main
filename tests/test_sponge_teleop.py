@@ -317,3 +317,17 @@ def test_grip_log_records_carried_sponge(scene, tmp_path, monkeypatch):
     rows = [json.loads(line) for line in (tmp_path / 'grip.jsonl').read_text().splitlines()]
     assert rows and rows[0]['mode'] == 'assisted' and rows[0]['tilt_deg'] < 1.
     assert len(rows[0]['handle_in_palm']) == 3 and len(rows[0]['wrist_roll_pitch_yaw']) == 3
+
+
+def test_hand_workspace_limits_reach_and_midline(monkeypatch):
+    import sys
+    from g1_teleop.bridge.cli import parse_args
+    from g1_teleop.bridge.vr_targets import apply_hand_workspace_shape
+    monkeypatch.setattr(sys, 'argv', ['bridge', '--avp-endpoint', 'x', '--max-hand-x', '0.48', '--hand-cross-limit', '0.05'])
+    args = parse_args()
+    np.testing.assert_allclose(apply_hand_workspace_shape(np.array([.65, .17, .1]), args, 'right'), [.48, .05, .1])
+    np.testing.assert_allclose(apply_hand_workspace_shape(np.array([.30, -.20, .1]), args, 'left'), [.30, -.05, .1])
+    np.testing.assert_allclose(apply_hand_workspace_shape(np.array([.30, -.20, .1]), args, 'right'), [.30, -.20, .1])
+    monkeypatch.setattr(sys, 'argv', ['bridge', '--avp-endpoint', 'x'])
+    default = parse_args()  # cube defaults: no midline limit, forward limit 0.88
+    np.testing.assert_allclose(apply_hand_workspace_shape(np.array([.65, .17, .1]), default, 'right'), [.65, .17, .1])

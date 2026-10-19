@@ -248,9 +248,16 @@ def hand_forward_backward_scales(args, side: str | None = None) -> tuple[float, 
     return forward, backward
 
 
-def apply_hand_workspace_shape(pos: np.ndarray, args) -> np.ndarray:
+def apply_hand_workspace_shape(pos: np.ndarray, args, side: str | None = None) -> np.ndarray:
     shaped = np.asarray(pos, dtype=np.float64).copy()
     shaped[0] = np.clip(shaped[0], args.min_hand_x, args.max_hand_x)
+    cross = getattr(args, "hand_cross_limit", None)
+    if cross is not None:
+        # Keep each hand from crossing far past the body midline (it would hit the torso).
+        if side == "right":
+            shaped[1] = min(shaped[1], cross)
+        elif side == "left":
+            shaped[1] = max(shaped[1], -cross)
     return shaped
 
 
@@ -587,7 +594,7 @@ def build_official_calib_vr_targets(
         elif pose is not None and calib_rel is not None:
             rel = head_yaw_compensated_relative(head_pose, pose)
             delta = official_hand_delta(rel, calib_rel, args, side=side)
-            pos = apply_hand_workspace_shape(base + delta, args)
+            pos = apply_hand_workspace_shape(base + delta, args, side)
             debug[f"{side}_rel"] = rel.copy()
             debug[f"{side}_delta"] = delta.copy()
             if wrist_mode == "live":
