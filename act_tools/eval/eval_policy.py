@@ -90,7 +90,12 @@ class CheckpointPolicy:
         cfg.device = device
         self.policy = get_policy_class(cfg.type).from_pretrained(path, config=cfg)
         self.policy.eval()
-        self.pre, self.post = make_pre_post_processors(cfg, pretrained_path=path)
+        # A checkpoint trained on a GPU machine stores device='cuda' in its preprocessor;
+        # run it on the requested device instead (the Jetson venv is CPU-only).
+        device_override = {'device_processor': {'device': device}}
+        self.pre, self.post = make_pre_post_processors(
+            cfg, pretrained_path=path,
+            preprocessor_overrides=device_override, postprocessor_overrides=device_override)
         self.keys = set(cfg.input_features)
 
     def start(self, plan, task):
