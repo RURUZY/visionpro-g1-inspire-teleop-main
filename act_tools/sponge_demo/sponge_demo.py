@@ -16,7 +16,9 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 
-ROBOT = Path('/home/epcap/projects/visionpro-g1-inspire-teleop-main/assets/mujoco/g1_runtime/g1_29dof_with_inspire_hand.xml')
+# G1_ROBOT_XML points to a copy elsewhere (e.g. the Windows training PC, with mesh paths rewritten).
+ROBOT = Path(os.environ.get('G1_ROBOT_XML',
+    '/home/epcap/projects/visionpro-g1-inspire-teleop-main/assets/mujoco/g1_runtime/g1_29dof_with_inspire_hand.xml'))
 ARM = ('shoulder_pitch', 'shoulder_roll', 'shoulder_yaw', 'elbow', 'wrist_roll', 'wrist_pitch', 'wrist_yaw')
 TABLE_Z = 0.78
 WIPE_Z = TABLE_Z - 0.002  # Soft-contact approximation, not a force controller.
