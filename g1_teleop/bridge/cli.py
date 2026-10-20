@@ -119,6 +119,14 @@ def parse_args():
         help="Max VR point speed (m/s) during stand-hold / CALIB_SYNC / pre-teleop (safety ramp).",
     )
     parser.add_argument(
+        "--no-engage-ramp",
+        dest="engage_ramp",
+        action="store_false",
+        default=True,
+        help="At ] ENGAGE, send the L stand-hold targets at once (old behavior) instead of "
+        "starting from the robot's current arm pose and moving at --vr-ramp-max-speed.",
+    )
+    parser.add_argument(
         "--vr-ramp-smoothing-tau",
         type=float,
         default=0.14,

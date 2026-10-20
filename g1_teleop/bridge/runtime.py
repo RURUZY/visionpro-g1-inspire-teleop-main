@@ -78,6 +78,18 @@ from g1_teleop.bridge.avp_connection import managed_streamer_class
 
 VisionProStreamer = managed_streamer_class(VisionProStreamer)
 
+# Joint pose the SONIC deploy holds from its INIT ramp until the policy starts at ] ENGAGE
+# (gear_sonic_deploy/src/g1/g1_deploy_onnx_ref/include/policy_parameters.hpp, default_angles,
+# 29 joints in hardware order). Used to start the ENGAGE ramp when body_q feedback is missing.
+DEPLOY_INIT_Q = np.array([
+    -0.312, 0.0, 0.0, 0.669, -0.363, 0.0,   # left leg
+    -0.312, 0.0, 0.0, 0.669, -0.363, 0.0,   # right leg
+    0.0, 0.0, 0.0,                          # waist yaw, roll, pitch
+    0.2, 0.2, 0.0, 0.6, 0.0, 0.0, 0.0,      # left arm
+    0.2, -0.2, 0.0, 0.6, 0.0, 0.0, 0.0,     # right arm
+])
+ENGAGE_RAMP_DONE_M = 0.01  # S waits until the streamed targets are this close to the hold pose
+
 
 def main():
     args = parse_args()
@@ -409,6 +421,26 @@ def main():
     fk_ref = FkRobotReference() if args.use_fk_calib else None
     if feedback_client is not None and fk_ref is not None and not fk_ref.available and args.print_debug:
         print(f"FK calib unavailable: {fk_ref._load_error}")
+    engage_fk = fk_ref if fk_ref is not None else (FkRobotReference() if args.engage_ramp else None)
+    engage_ramp_active = False
+
+    def engage_start_pose() -> tuple[np.ndarray, np.ndarray, str] | None:
+        """Robot arm pose right before ] ENGAGE, as VR 3-point targets.
+
+        Measured body_q from deploy feedback if present, else the deploy INIT pose the robot
+        holds until the policy starts. None when FK is unavailable.
+        """
+        if engage_fk is None or not engage_fk.available:
+            return None
+        feedback = feedback_client.latest() if feedback_client is not None else None
+        if feedback is not None and feedback.body_q is not None:
+            targets = engage_fk.vr_targets_from_body_q(feedback.body_q)
+            if targets is not None:
+                return targets[0], targets[1], "measured body_q"
+        targets = engage_fk.vr_targets_from_body_q(DEPLOY_INIT_Q)
+        if targets is not None:
+            return targets[0], targets[1], "deploy INIT pose"
+        return None
     last_sent_vr_position = None
     last_sent_vr_orientation = None
     head_loco_state = HeadLocomotionState()
@@ -726,9 +758,32 @@ def main():
                                 hold_pos, hold_orn = official_base_positions.copy(), official_base_orientations.copy()
                             else:
                                 hold_pos, hold_orn = resolve_stand_hold_targets()
-                            prime_deploy_l_hold(hold_pos, hold_orn, now)
+                            # Start the policy at the arms' current pose; the stand-hold loop then
+                            # moves the targets to the L pose at --vr-ramp-max-speed (the deploy
+                            # binary ignores --policy-start-ramp-sec, so sending L at once made
+                            # the arms snap up).
+                            start_pose = engage_start_pose() if args.engage_ramp else None
+                            if start_pose is not None:
+                                # Ramp the wrists only. The FK "torso" point is not the configured
+                                # head target (0.40 m vs 0.75 m high); starting from it would read
+                                # as a crouch, so the head target stays at the hold value.
+                                first_pos, first_orn = start_pose[0].copy(), start_pose[1].copy()
+                                first_pos[6:9] = hold_pos[6:9]
+                                first_orn[8:12] = hold_orn[8:12]
+                                engage_ramp_active = True
+                                print(
+                                    f"\nENGAGE ramp: from {start_pose[2]} to the hold pose at "
+                                    f"{args.vr_ramp_max_speed:.3f} m/s, "
+                                    f"{args.vr_ramp_max_angular_speed:.2f} rad/s "
+                                    f"(wrists up to {np.abs(hold_pos - first_pos).max():.2f} m away)"
+                                )
+                            else:
+                                first_pos, first_orn = hold_pos, hold_orn
+                                if args.engage_ramp:
+                                    print("\nWARNING: ENGAGE ramp unavailable (no FK); sending hold pose at once.")
+                            prime_deploy_l_hold(first_pos, first_orn, now)
                             publisher.send_command(start=True, stop=False, planner=True)
-                            send_idle_planner(hold_pos, hold_orn)
+                            send_idle_planner(first_pos, first_orn)
                             last_start = now
                             policy_started = True
                             stand_hold = True
@@ -762,6 +817,16 @@ def main():
                             if not calib_session.full_done:
                                 print("\nDo CALIB_FULL (F) first.")
                                 continue
+                            if engage_ramp_active and last_sent_vr_position is not None:
+                                remaining = float(np.abs(official_base_positions - last_sent_vr_position).max())
+                                if remaining > ENGAGE_RAMP_DONE_M:
+                                    # Same wording as a failed hold so solo_teleop.sh retries S.
+                                    print(
+                                        f"\nCalibration FAILED — arms still moving to the hold pose "
+                                        f"({remaining * 100:.1f} cm left); wait and press S again."
+                                    )
+                                    continue
+                                engage_ramp_active = False
                             begin_calib_hold("sync")
                             continue
                         if key in ("t", "T"):

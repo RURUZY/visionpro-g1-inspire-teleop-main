@@ -62,7 +62,9 @@ calibrate() {
         return 0
       fi
       if (( $(count "Calibration FAILED") > fail_before )); then
-        log "$key FAILED (moved too much), retrying in 3 s"
+        # Show the bridge's reason (no tracking frames, moved too much, arms still ramping...).
+        log "$key FAILED: $(grep -a -E 'Calibration quality|Calibration FAILED' "$LOG" | tail -1)"
+        log "retrying in 3 s"
         sleep 3
         continue 2
       fi

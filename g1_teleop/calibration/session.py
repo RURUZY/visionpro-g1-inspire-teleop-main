@@ -285,9 +285,18 @@ class FkRobotReference:
             groot_root = None
             import os
 
+            # GR00T_ROOT is what .env sets for the launchers; the sibling checkout is the
+            # Jetson layout (~/projects/GR00T-WholeBodyControl next to this repo).
+            sibling = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                "..",
+                "GR00T-WholeBodyControl",
+            )
             for candidate in (
                 os.environ.get("GR00T_WBC_ROOT"),
+                os.environ.get("GR00T_ROOT"),
                 "/mnt/newssd/GR00T-WholeBodyControl",
+                os.path.normpath(sibling),
             ):
                 if candidate and os.path.isdir(candidate):
                     groot_root = candidate
