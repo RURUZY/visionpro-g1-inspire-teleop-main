@@ -214,8 +214,8 @@ class PickupTeacher(W.WipeTeacher):
             if k == grasp_frame:
                 rel0 = self.relative_tool()
                 grip_offset = self.measure_grip(plan)
-                lifted_ok = (self.data.xpos[self.tool][2] > W.TABLE_Z + REST_Z + .5 * LIFT
-                             and len(self.hand_tool_contacts()) >= 2)
+                lifted_ok = bool(self.data.xpos[self.tool][2] > W.TABLE_Z + REST_Z + .5 * LIFT
+                                 and len(self.hand_tool_contacts()) >= 2)
             if rel0 is not None:
                 self.mark_coverage(covered)
                 pos, rot = self.relative_tool()

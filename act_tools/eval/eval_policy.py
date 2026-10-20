@@ -186,8 +186,8 @@ def run_trial(t, policy, rng, side, max_seconds, perturber=None):
             import pickup_teacher as PT
             rel0 = t.relative_tool()
             t.measure_grip(plan)
-            picked_up = (t.data.xpos[t.tool][2] > W.TABLE_Z + PT.REST_Z + .5 * PT.LIFT
-                         and len(t.hand_tool_contacts()) >= 2)
+            picked_up = bool(t.data.xpos[t.tool][2] > W.TABLE_Z + PT.REST_Z + .5 * PT.LIFT
+                             and len(t.hand_tool_contacts()) >= 2)
         t.mark_coverage(covered)
         pose = t.tool_in_palm()
         max_drift = max(max_drift, float(np.linalg.norm(pose[:3] - rel0[0])))
