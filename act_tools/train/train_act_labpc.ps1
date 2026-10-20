@@ -3,7 +3,7 @@
 # arguments and the file is renamed to next_run.used.json, so the scheduled task G1ACT_train can
 # launch new runs without changing its command line (which would ask for the account password).
 param([string]$Name = "act_left200", [int]$Steps = 20000, [int]$Save = 5000, [int]$Log = 200, [int]$Batch = 8,
-      [string]$Data = "D:\g1data\left200\dataset")
+      [string]$Data = "D:\g1data\left200\dataset", [int]$Workers = 4)
 $next = "D:\g1act\next_run.json"
 if (Test-Path $next) {
   $cfg = Get-Content -Raw $next | ConvertFrom-Json
@@ -19,6 +19,6 @@ $logFile = "D:\g1runs\$Name.log"
   --dataset.repo_id=local/g1_inspire_wipe_sim --dataset.root=$Data `
   --dataset.video_backend=pyav --policy.type=act --policy.device=cuda `
   --policy.chunk_size=20 --policy.n_action_steps=5 --policy.push_to_hub=false `
-  --batch_size=$Batch --steps=$Steps --save_freq=$Save --log_freq=$Log --num_workers=4 `
+  --batch_size=$Batch --steps=$Steps --save_freq=$Save --log_freq=$Log --num_workers=$Workers `
   --wandb.enable=false --output_dir=$out 2>&1 | ForEach-Object { "$_" } | Out-File -Append -Encoding utf8 $logFile
 "finished $(Get-Date -Format s) exit=$LASTEXITCODE" | Out-File -Append -Encoding utf8 $logFile
