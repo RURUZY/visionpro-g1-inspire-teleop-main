@@ -50,8 +50,9 @@ sys.exit(status)
 ''')
     tmux.chmod(0o755)
     extra = ["--print-debug", "--literal", 'spaces $(not-a-command) `literal`']
+    mapping = tmp_path / "mapping.jsonl"
     env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}", REPO=str(ROOT),
-               LOG=str(log), WAIT_PUTON="0", BALANCE_SEC="0",
+               LOG=str(log), MAPPING_LOG=str(mapping), WAIT_PUTON="0", BALANCE_SEC="0",
                FAKE_TMUX_STATE=str(state), FAKE_TMUX_EVENTS=str(events))
     result = subprocess.run(["bash", str(ROOT / "solo_teleop.sh"), "192.168.2.5", *extra],
                             env=env, input="\n", capture_output=True, text=True, timeout=10)
@@ -63,4 +64,4 @@ sys.exit(status)
     assert stop < kill < launch
     command = shlex.split(calls[launch][-1])
     assert command == ["bash", str(ROOT / "tools/solo_bridge_session.sh"), str(ROOT),
-                       str(log), "tele", "192.168.2.5", *extra]
+                       str(log), "tele", "192.168.2.5", "--mapping-log", str(mapping), *extra]
