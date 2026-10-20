@@ -65,6 +65,7 @@ from g1_teleop.locomotion.hybrid import (
     keyboard_planner_command,
     merge_hybrid_planner_commands,
 )
+from g1_teleop.eval.mapping_log import MappingLogger
 from g1_teleop.eval.task_a import RemsEvalLogger
 from g1_teleop.paths import ensure_scripts_on_path, visionpro_teleop_root
 
@@ -123,6 +124,7 @@ def main():
     loco_clutch = LocomotionClutch(enabled=args.locomotion_clutch)
     walking_inputs = "head + keyboard" if args.hybrid_locomotion else "headset"
     eval_logger = RemsEvalLogger(args.eval_log) if args.eval_log else None
+    mapping_logger = MappingLogger(args.mapping_log) if args.mapping_log else None
     pending_waypoint_mark: int | None = None
     smoother = PositionSmoother()
     orientation_smoother = OrientationSmoother()
@@ -1323,6 +1325,7 @@ def main():
                 preengage_stream = should_preenage_stream()
                 if targets is not None and (policy_started or preengage_stream):
                     vr_position, vr_orientation = targets
+                    target_raw = np.asarray(vr_position, dtype=np.float64).copy()
                     if (
                         args.arm_tracking_hold
                         and live_teleop
@@ -1369,6 +1372,21 @@ def main():
                         )
                     last_sent_vr_position = vr_position.copy()
                     last_sent_vr_orientation = vr_orientation.copy()
+                    if mapping_logger is not None:
+                        fb = feedback_client.latest() if feedback_client is not None else None
+                        mapping_logger.write(
+                            phase=(
+                                "stand_hold" if stand_hold
+                                else "paused" if calib_session.paused
+                                else "calib" if (now < calib_hold_until or not live_teleop)
+                                else "live"
+                            ),
+                            tracking=tracking,
+                            target_raw=target_raw,
+                            target_sent_pos=vr_position,
+                            target_sent_orn=vr_orientation,
+                            body_q=None if fb is None else fb.body_q,
+                        )
                     if preengage_stream and not policy_started:
                         send_idle_planner(vr_position, vr_orientation)
                     else:
@@ -1457,6 +1475,8 @@ def main():
 
                 time.sleep(period)
     finally:
+        if mapping_logger is not None:
+            mapping_logger.close()
         if fpv_streamer is not None:
             fpv_streamer.close()
         if feedback_client is not None:

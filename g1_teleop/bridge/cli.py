@@ -648,6 +648,13 @@ def parse_args():
         metavar="PATH",
         help="Write Task A / REMS eval CSV (locomotion + IMU fields) to PATH.",
     )
+    parser.add_argument(
+        "--mapping-log",
+        default=None,
+        metavar="PATH",
+        help="Record per-frame operator poses, VR targets and measured robot joints to a JSONL "
+        "file for mapping analysis (tools/analyze_mapping_log.py).",
+    )
     parser.add_argument("--loco-velocity-gain", type=float, default=1.0)
     parser.add_argument("--loco-yaw-gain", type=float, default=0.9)
     parser.add_argument("--loco-forward-scale", type=float, default=1.0)

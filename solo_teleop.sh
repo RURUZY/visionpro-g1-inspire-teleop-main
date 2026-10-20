@@ -11,7 +11,8 @@
 # Then stand still again in the calibration pose for S; T follows automatically.
 #
 # Watch / take over:   tmux attach -t tele   (detach: Ctrl-b then d)
-# Full bridge log:     /tmp/solo_bridge.log  (image-staleness warnings filtered out)
+# Full bridge log:     recordings/solo_bridge_<time>.log  (image-staleness warnings filtered out)
+# Mapping record:      recordings/mapping_<time>.jsonl  (MAPPING_LOG= disables; tools/analyze_mapping_log.py)
 # Pause / stop:        tmux send-keys -t tele p    |    tmux send-keys -t tele o
 #
 # Tunables (env vars): WAIT_PUTON=6  BALANCE_SEC=6  REPO=~/projects/visionpro-g1-inspire-teleop-main
@@ -30,7 +31,14 @@ REPO="${REPO:-$HOME/projects/visionpro-g1-inspire-teleop-main}"
 WAIT_PUTON="${WAIT_PUTON:-6}"
 BALANCE_SEC="${BALANCE_SEC:-6}"
 TRIES=3
-LOG="${LOG:-/tmp/solo_bridge.log}"
+STAMP="$(date +%Y%m%d_%H%M%S)"
+# Kept under recordings/ (not /tmp) so a Jetson reboot does not lose the session.
+mkdir -p "$REPO/recordings"
+LOG="${LOG:-$REPO/recordings/solo_bridge_$STAMP.log}"
+# Per-frame operator/target/robot-joint record for tools/analyze_mapping_log.py; MAPPING_LOG= disables.
+MAPPING_LOG="${MAPPING_LOG-$REPO/recordings/mapping_$STAMP.jsonl}"
+MAPPING_ARGS=()
+[[ -n "$MAPPING_LOG" ]] && MAPPING_ARGS=(--mapping-log "$MAPPING_LOG")
 
 log() { echo "[solo $(date +%T)] $*"; }
 
@@ -95,9 +103,11 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   tmux kill-session -t "$SESSION" 2>/dev/null || true
 fi
 : > "$LOG"
-printf -v bridge_cmd '%q ' bash "$REPO/tools/solo_bridge_session.sh" "$REPO" "$LOG" "$SESSION" "$AVP_IP" "$@"
+printf -v bridge_cmd '%q ' bash "$REPO/tools/solo_bridge_session.sh" "$REPO" "$LOG" "$SESSION" "$AVP_IP" "${MAPPING_ARGS[@]}" "$@"
 tmux new-session -d -s "$SESSION" -x 220 -y 50 "$bridge_cmd"
 log "bridge started in tmux session '$SESSION', waiting for Vision Pro tracking..."
+log "bridge log: $LOG"
+[[ -n "$MAPPING_LOG" ]] && log "mapping record: $MAPPING_LOG (analyse: python tools/analyze_mapping_log.py $MAPPING_LOG)"
 # Keys pressed before "AVP tracking locked" are ignored by the bridge, so wait for it.
 wait_new "Press F (or c) for CALIB_FULL" 90 0 || { log "no Vision Pro tracking after 90 s - is Tracking Streamer open on $AVP_IP? tmux attach -t $SESSION"; exit 1; }
 log "tracking locked"
