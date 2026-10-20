@@ -14,6 +14,7 @@ Simulation only, fixed pelvis; not a real-robot interface.
 
   python pickup_teacher/pickup_teacher.py --episodes 200 --side left --output pickup_teacher/runs/left200
   add --randomize light,color,camera,physics for domain randomization (wipe_teacher/randomization.py)
+  add --language for paraphrased instructions + embeddings (language-conditioned ACT)
 """
 from __future__ import annotations
 
@@ -37,7 +38,8 @@ LIFT = .10
 GRASP_Z = .0005                      # pad bottom just above the table at the grasp
 CLOSE_S = .7                         # finger closing ramp
 REST_Z = .0985                       # tool origin above the table top when standing on its pad
-PRESS = .005                         # extra press while wiping: a contact grip yields upward on the table
+PRESS = 0.                           # extra press while wiping (5 mm twisted the tool in the hand on the right region)
+FINAL_LIFT = .16                     # end: lift straight up from the last stroke, no sweep back over the other region
 
 
 def yaw_matrix(yaw):
@@ -72,11 +74,18 @@ class PickupPlan:
 class PickupTeacher(W.WipeTeacher):
     RANDOMIZE = ()      # domain randomization kinds for data generation (see --randomize)
     RANDOMIZE_SEED = 0
+    LANGUAGE = False    # --language: paraphrased instruction + its embedding per episode
 
     def __init__(self, scene_path):
         super().__init__(scene_path)
         self.closed_hand = self.qref[self.control_qadr][self.hand_act].copy()
         self.target_rot = np.eye(3)
+        self.current_task, self.current_embedding = None, None
+        if self.LANGUAGE:
+            sys.path.insert(0, str(HERE.parent / 'language'))
+            import encode, instructions
+            self._embed, self._train_texts = encode.embed, instructions.TRAIN
+            self._lang_rng = np.random.default_rng(self.RANDOMIZE_SEED + 31337)
         self.randomizer = None
         if self.RANDOMIZE:
             from randomization import Perturber
@@ -175,16 +184,28 @@ class PickupTeacher(W.WipeTeacher):
         close_start, lifted_at = times[3], times[5]
         # Wiping: from the lifted pose straight into the usual strokes (skip the wipe start point).
         wipe_t0 = lifted_at + .6
-        for p, tt in zip(wipe.points[1:], wipe.times[1:]):
+        # wipe.points: start, approach, strokes..., lift, return-to-start. Skip the start; replace the
+        # return (it crosses the other region) by a higher lift in place.
+        for p, tt in zip(wipe.points[1:-1], wipe.times[1:-1]):
             points.append(p)
             times.append(wipe_t0 + tt)
+        points.append(np.r_[points[-1][:2], W.TABLE_Z + FINAL_LIFT])
+        times.append(times[-1] + 1.0)
         closure = lambda t: (t - close_start) / CLOSE_S
         self.reset_on_table(start, tool_xy, yaw, via=lifted)
         self.tool_yaw = float(np.degrees(yaw))
         return center, PickupPlan(points, times, closure, grasped_at=wipe_t0, wipe_from=wipe_t0,
                                   yaw=yaw, turn_from=times[4])
 
+    def extra_obs(self):
+        if self.LANGUAGE:
+            return {'observation.environment_state': self.current_embedding}
+        return super().extra_obs()
+
     def run_episode(self, rng, side, *, record=True, viewer=None):
+        if self.LANGUAGE:
+            self.current_task = str(self._lang_rng.choice(self._train_texts[side]))
+            self.current_embedding = self._embed(self.current_task)
         if self.randomizer is not None:
             self.randomizer.apply()
         center, plan = self.begin_episode(rng, side)
@@ -235,6 +256,7 @@ class PickupTeacher(W.WipeTeacher):
             'max_grasp_drift_m': round(max_drift, 4), 'max_grasp_rotation_deg': round(max_rot, 2),
             'frames_with_weak_grasp': weak,
             'grip_offset_m': np.round(grip_offset, 4).tolist() if rel0 is not None else None,
+            'instruction': self.current_task or W.TASKS[side],
         }
         s = W.SUCCESS
         failures = [name for name, bad in (
@@ -251,6 +273,11 @@ class PickupTeacher(W.WipeTeacher):
 def main():
     # --randomize light,color,camera,physics (domain randomization, redrawn every episode); the
     # remaining arguments go to wipe_teacher.main.
+    if '--language' in sys.argv:
+        sys.argv.remove('--language')
+        PickupTeacher.LANGUAGE = True
+        W.EXTRA_FEATURES['observation.environment_state'] = {
+            'dtype': 'float32', 'shape': (384,), 'names': [f'instruction_emb_{i}' for i in range(384)]}
     if '--randomize' in sys.argv:
         i = sys.argv.index('--randomize')
         kinds = tuple(k for k in sys.argv[i + 1].split(',') if k)
@@ -269,6 +296,8 @@ def main():
         data['scope'] = ('Scripted simulated teacher, fixed pelvis, tool picked up from the table by finger '
                          'contact, then wiping. Not real-robot data.')
         data['randomize'] = list(PickupTeacher.RANDOMIZE)
+        data['language'] = ('paraphrased instructions (language/instructions.py TRAIN) + all-MiniLM-L6-v2 '
+                            'embedding in observation.environment_state') if PickupTeacher.LANGUAGE else None
         summary.write_text(json.dumps(data, indent=2) + '\n')
 
 

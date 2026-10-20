@@ -389,7 +389,7 @@ def main():
         info.update(attempt=attempt, seed=args.seed, kept_index=kept if keep else None)
         if keep:
             for frame in frames:
-                dataset.add_frame({**frame, 'task': TASKS[side]})
+                dataset.add_frame({**frame, 'task': getattr(teacher, 'current_task', None) or TASKS[side]})
             dataset.save_episode()
             kept += 1
         log.write(json.dumps(info) + '\n')
